@@ -3,26 +3,45 @@ name: CI
 on:
   push:
     branches: [ main ]  # main 브랜치 푸시에 CI/CD 실행 (필요에 따라 조정)
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
   build:
+    name: Build, Test, and Generate Docs
     runs-on: windows-latest  # Windows 환경에서 빌드 및 테스트 진행
-    env:
-      VCPKG_ROOT: "${{ github.workspace }}\\vcpkg"  # (선택) vcpkg 루트 경로 설정 - 필수는 아니지만 명시적 지정
-      VCPKG_DEFAULT_TRIPLET: "x64-windows"          # (선택) 기본 타겟 트리플릿 설정 - x64 Windows 대상으로 빌드
+    
     steps:
+      # 1) 저장소와 서브모듈을 전부 전체 히스토리(fetch-depth: 0)로 체크아웃
       - name: Check out source
         uses: actions/checkout@v4
         with:
           submodules: true       # vcpkg 서브모듈을 함께 체크아웃
           fetch-depth: 0         # 전체 Git 기록 fetch (shallow clone 방지하여 baseline 커밋 확보)
 
+      # 2) GitHub Actions 캐시를 vcpkg에서 사용할 수 있도록 환경변수 설정
+      #    vcpkg 이슈/문서에 따르면, 이 두 변수 설정 후 VCPKG_BINARY_SOURCES를 x-gha로 설정 시,
+      #    빌드된 바이너리를 GHA 캐시에 저장/복원하게 됨 (manifest 모드에서 자동 사용).
+      - name: Enable vcpkg GitHub Actions Cache
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      # 3) vcpkg 바이너리 캐싱 설정
+      - name: Configure vcpkg binary caching
+        run: echo "VCPKG_BINARY_SOURCES=clear;x-gha,readwrite" >> $GITHUB_ENV
+
+      # 4) vcpkg 부트스트랩
       - name: Bootstrap vcpkg
         run: |
             git submodule update --init --recursive
             .\vcpkg\bootstrap-vcpkg.bat
         # 설명: vcpkg 서브모듈 초기화 - vcpkg.exe 빌드 (의존 패키지 설치를 위해 필요)
 
+      # 5) CMake Configure
+      #    manifest 모드에서 vcpkg.json을 감지하여 의존성 설치. x64-Windows용 Release 빌드
       - name: Configure CMake (Generate project)
         run: cmake -B build -S . -A x64 ^
                -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}\vcpkg\scripts\buildsystems\vcpkg.cmake ^
@@ -32,10 +51,12 @@ jobs:
         #       CMAKE_BUILD_TYPE=Release: Release 구성으로 생성 (단, MSVC의 다중 구성에선 --config로 설정)
         #       이 단계에서 vcpkg manifest에 따라 필요한 패키지들을 자동으로 설치함
 
+      # 6) 빌드
       - name: Build (Release)
         run: cmake --build build --config Release
         # 설명: CMake 빌드 단계 - Release 구성으로 빌드 실행 (빌드된 실행 파일 및 라이브러리 생성)
 
+      # 7) 테스트 (ctest)
       - name: Run tests
         run: |
           cd build
@@ -44,16 +65,20 @@ jobs:
         # 설명: 테스트 실행 단계 - CTest를 통해 Release 구성의 모든 테스트 실행.
         #       실패한 테스트가 있으면 로그를 출력하고, exit code != 0로 CI 실패를 유도.
 
+      # 8) Chocolatey로 doxygen 포터블 버전 설치 (PATH 인식 문제 방지)
       - name: Install Doxygen
-        run: choco install doxygen.install -y
+        run: choco install doxygen.portable -y
         # 설명: Doxygen 설치 - 초콜렛패키지 매니저를 사용하여 Doxygen 도구 설치 (Windows 전용).
-
+  
+      # 9) Doxygen 문서 생성 (docs/Doxyfile 기준)
       - name: Generate Documentation
         working-directory: docs
         run: doxygen docs\Doxyfile
         # 설명: Doxygen 문서 생성 - docs 폴더의 Doxyfile 설정을 사용하여 문서 생성.
         #       생성된 HTML 등의 출력물은 docs/docs_output 경로 하위에 생김.
 
+      # 10) Pages용 아티팩트 업로드
+      #     docs/docs_output 폴더(HTML 문서)가 업로드됨 → 다음 잡(deploy)에서 배포
       - name: Upload artifact for Pages
         uses: actions/upload-pages-artifact@v3
         with:
@@ -62,6 +87,7 @@ jobs:
         #       이 단계에서 업로드된 내용은 deploy job에서 받아 Pages에 배포됨.
 
   deploy:
+    name: Deploy to GitHub Pages
     runs-on: ubuntu-latest  # Pages 배포는 경량 작업이므로 리눅스 러너 사용
     needs: build            # build job 완료 후 실행
     permissions:
