@@ -1,0 +1,52 @@
+name: CI
+
+# 이 워크플로우(파이프라인)를 언제 실행할지 정의
+on:
+  push:
+    branches: ["main"]  # main 브랜치에 push될 때 실행
+  pull_request:
+    branches: ["main"]  # main 브랜치로의 PR이 생길 때 실행
+
+jobs:
+  build-test-docs:
+    runs-on: windows-latest  # Windows 환경에서 동작 (ubuntu-latest 등 변경 가능)
+
+    steps:
+      # 1) 레포지토리 체크아웃
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive  # vcpkg 등이 서브모듈이면 함께 체크아웃
+
+      # 2) vcpkg 부트스트랩 (vcpkg 폴더가 서브모듈이라고 가정)
+      - name: Bootstrap vcpkg
+        run: .\vcpkg\bootstrap-vcpkg.bat
+
+      # 3) CMake Configure
+      #    CMAKE_TOOLCHAIN_FILE에 vcpkg를 지정하고, Release 모드 등 필요한 설정을 추가
+      - name: Configure CMake
+        run: cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=./vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release
+
+      # 4) CMake Build
+      - name: Build
+        run: cmake --build build --config Release
+
+      # 5) 테스트 실행 (ctest)
+      - name: Test
+        run: ctest --test-dir build --config Release
+
+      # 6) Doxygen 설치 (Windows 환경에서는 Chocolatey 예시)
+      - name: Install Doxygen
+        run: choco install doxygen -y
+
+      # 7) Doxygen 문서 생성
+      - name: Generate Doxygen
+        run: doxygen docs/Doxyfile
+
+      # 8) Doxygen 문서를 빌드 아티팩트로 업로드
+      #    GitHub Actions > 'Artifacts' 탭에서 다운로드 가능
+      - name: Upload docs artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: doxygen-html
+          path: docs_output/html  # Doxyfile에서 OUTPUT_DIRECTORY를 지정했다 가정
