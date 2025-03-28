@@ -22,28 +22,34 @@ jobs:
       - name: Bootstrap vcpkg
         run: .\vcpkg\bootstrap-vcpkg.bat
 
-      # 3) CMake Configure
+      # 3) vcpkg 패키지 설치 - Boost 패키지 명시적으로 설치
+      - name: Install dependencies with vcpkg
+        run: |
+          .\vcpkg\vcpkg install boost-asio:x64-windows
+          .\vcpkg\vcpkg integrate install
+
+      # 4) CMake Configure
       #    CMAKE_TOOLCHAIN_FILE에 vcpkg를 지정하고, Release 모드 등 필요한 설정을 추가
       - name: Configure CMake
-        run: cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=./vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE="${{github.workspace}}/vcpkg/scripts/buildsystems/vcpkg.cmake" -DCMAKE_BUILD_TYPE=Release
 
-      # 4) CMake Build
+      # 5) CMake Build
       - name: Build
         run: cmake --build build --config Release
 
-      # 5) 테스트 실행 (ctest)
+      # 6) 테스트 실행 (ctest)
       - name: Test
         run: ctest --test-dir build --config Release
 
-      # 6) Doxygen 설치 (Windows 환경에서는 Chocolatey 예시)
+      # 7) Doxygen 설치 (Windows 환경에서는 Chocolatey 예시)
       - name: Install Doxygen
         run: choco install doxygen -y
 
-      # 7) Doxygen 문서 생성
+      # 8) Doxygen 문서 생성
       - name: Generate Doxygen
         run: doxygen docs/Doxyfile
 
-      # 8) Doxygen 문서를 빌드 아티팩트로 업로드
+      # 9) Doxygen 문서를 빌드 아티팩트로 업로드
       #    GitHub Actions > 'Artifacts' 탭에서 다운로드 가능
       - name: Upload docs artifact
         uses: actions/upload-pages-artifact@v3
