@@ -1,0 +1,12 @@
+{
+  "name": "cherryrecorder-server",
+  "version": "0.1.0",
+  "description": "Server component for the CherryRecorder application",
+  "homepage": "https://github.com/kugorang/CherryRecorder-Server",
+  "dependencies": [
+    "mysql-connector-cpp",
+    "gtest",
+    "boost-asio"
+  ],
+  "builtin-baseline": "b02e341c927f16d991edbd915d8ea43eac52096c"
+}
