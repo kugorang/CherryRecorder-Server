@@ -73,7 +73,7 @@ jobs:
       # 9) Doxygen 문서 생성 (docs/Doxyfile 기준)
       - name: Generate Documentation
         working-directory: docs
-        run: doxygen docs\Doxyfile
+        run: doxygen .\docs\Doxyfile
         # 설명: Doxygen 문서 생성 - docs 폴더의 Doxyfile 설정을 사용하여 문서 생성.
         #       생성된 HTML 등의 출력물은 docs/docs_output 경로 하위에 생김.
 
@@ -82,7 +82,7 @@ jobs:
       - name: Upload artifact for Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/docs_output/html
+          path: ./docs/docs_output/html
         # 설명: GitHub Pages용 아티팩트 업로드 - 앞서 생성된 docs_output 폴더를 압축하여 업로드.
         #       이 단계에서 업로드된 내용은 deploy job에서 받아 Pages에 배포됨.
 
