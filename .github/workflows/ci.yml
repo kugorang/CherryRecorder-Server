@@ -46,7 +46,27 @@ jobs:
       # 8) Doxygen 문서를 빌드 아티팩트로 업로드
       #    GitHub Actions > 'Artifacts' 탭에서 다운로드 가능
       - name: Upload docs artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-pages-artifact@v3
         with:
           name: doxygen-html
           path: docs_output/html  # Doxyfile에서 OUTPUT_DIRECTORY를 지정했다 가정
+
+  deploy:
+    needs: build-test-docs  # build-test-docs 작업이 성공적으로 끝나야 실행
+
+    # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
+    permissions:
+      pages: write      # to deploy to Pages
+      id-token: write   # to verify the deployment originates from an appropriate source
+
+    # Deploy to the github-pages environment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    # Specify runner + deployment step
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
