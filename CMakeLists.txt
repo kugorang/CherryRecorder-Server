@@ -27,7 +27,7 @@ add_library(CherryRecorder-Server
 target_include_directories(CherryRecorder-Server
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-find_package(Boost REQUIRED COMPONENTS asio)
+find_package(boost_asio CONFIG REQUIRED)
 target_link_libraries(CherryRecorder-Server
     PUBLIC Boost::asio
 )
