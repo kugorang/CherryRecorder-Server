@@ -1,48 +1,69 @@
-name: CI Build and Docs
+name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]  # main 브랜치 푸시에 CI/CD 실행 (필요에 따라 조정)
+
 jobs:
-  build-and-docs:
-    runs-on: windows-latest
+  build:
+    runs-on: windows-latest  # Windows 환경에서 빌드 및 테스트 진행
+    env:
+      VCPKG_ROOT: "${{ github.workspace }}\\vcpkg"  # (선택) vcpkg 루트 경로 설정 - 필수는 아니지만 명시적 지정
+      VCPKG_DEFAULT_TRIPLET: "x64-windows"          # (선택) 기본 타겟 트리플릿 설정 - x64 Windows 대상으로 빌드
     steps:
-      - uses: actions/checkout@v3
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: true       # vcpkg 서브모듈을 함께 체크아웃
+          fetch-depth: 0         # 전체 Git 기록 fetch (shallow clone 방지하여 baseline 커밋 확보)
 
-      # vcpkg 서브모듈 초기화 및 부트스트랩
-      - name: Set up vcpkg
+      - name: Bootstrap vcpkg
         run: |
-          git submodule update --init --recursive
-          .\vcpkg\bootstrap-vcpkg.bat
+            git submodule update --init --recursive
+            .\vcpkg\bootstrap-vcpkg.bat
+        # 설명: vcpkg 서브모듈 초기화 - vcpkg.exe 빌드 (의존 패키지 설치를 위해 필요)
 
-      # CMake 구성 (vcpkg 툴체인 파일 사용, x64 플랫폼 예시)
-      - name: Configure CMake
+      - name: Configure CMake (Generate project)
         run: cmake -B build -S . -A x64 ^
                -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}\vcpkg\scripts\buildsystems\vcpkg.cmake ^
                -DCMAKE_BUILD_TYPE=Release
+        # 설명: CMake 설정 단계 - vcpkg 툴체인 파일 지정하여 manifest 모드 활성화.
+        #       -B build: 빌드 폴더 생성, -S .: 소스 폴더 지정 (현재 폴더)
+        #       CMAKE_BUILD_TYPE=Release: Release 구성으로 생성 (단, MSVC의 다중 구성에선 --config로 설정)
+        #       이 단계에서 vcpkg manifest에 따라 필요한 패키지들을 자동으로 설치함
 
-      # 빌드 실행
-      - name: Build
+      - name: Build (Release)
         run: cmake --build build --config Release
+        # 설명: CMake 빌드 단계 - Release 구성으로 빌드 실행 (빌드된 실행 파일 및 라이브러리 생성)
 
-      # Doxygen 설치 (Chocolatey 이용)
+      - name: Run tests
+        run: |
+          cd build
+          ctest -C Release --output-on-failure
+          cd ..
+        # 설명: 테스트 실행 단계 - CTest를 통해 Release 구성의 모든 테스트 실행.
+        #       실패한 테스트가 있으면 로그를 출력하고, exit code != 0로 CI 실패를 유도.
+
       - name: Install Doxygen
         run: choco install doxygen.install -y
+        # 설명: Doxygen 설치 - 초콜렛패키지 매니저를 사용하여 Doxygen 도구 설치 (Windows 전용).
 
-      # Doxygen 문서 생성
-      - name: Generate Doxygen Documentation
+      - name: Generate Documentation
+        working-directory: docs
         run: doxygen docs\Doxyfile
+        # 설명: Doxygen 문서 생성 - docs 폴더의 Doxyfile 설정을 사용하여 문서 생성.
+        #       생성된 HTML 등의 출력물은 docs/docs_output 경로 하위에 생김.
 
-      # (선택) 생성된 문서를 아티팩트로 업로드하거나 배포
-      - name: Upload Docs Artifact
-        uses: actions/upload-artifact@v3
+      - name: Upload artifact for Pages
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: DoxygenDocs
-          path: docs/docs_output/html  # HTML 문서 경로를 아티팩트로 지정
+          path: docs/docs_output/html
+        # 설명: GitHub Pages용 아티팩트 업로드 - 앞서 생성된 docs_output 폴더를 압축하여 업로드.
+        #       이 단계에서 업로드된 내용은 deploy job에서 받아 Pages에 배포됨.
 
   deploy:
     runs-on: ubuntu-latest  # Pages 배포는 경량 작업이므로 리눅스 러너 사용
-    needs: build-and-docs   # build-and-docs job 완료 후 실행
+    needs: build            # build job 완료 후 실행
     permissions:
       pages: write          # GitHub Pages 배포 권한
       id-token: write       # OIDC 토큰 권한 (페이지 배포 인증용)
