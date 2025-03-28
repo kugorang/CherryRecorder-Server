@@ -42,7 +42,7 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest  # Pages 배포는 경량 작업이므로 리눅스 러너 사용
-    needs: build            # build job 완료 후 실행
+    needs: build-and-docs   # build-and-docs job 완료 후 실행
     permissions:
       pages: write          # GitHub Pages 배포 권한
       id-token: write       # OIDC 토큰 권한 (페이지 배포 인증용)
