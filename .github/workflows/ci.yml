@@ -1,78 +1,76 @@
 name: CI
 
-# 이 워크플로우(파이프라인)를 언제 실행할지 정의
 on:
   push:
-    branches: ["main"]  # main 브랜치에 push될 때 실행
-  pull_request:
-    branches: ["main"]  # main 브랜치로의 PR이 생길 때 실행
+    branches: [ main ]  # main 브랜치 푸시에 CI/CD 실행 (필요에 따라 조정)
 
 jobs:
-  build-test-docs:
-    runs-on: windows-latest  # Windows 환경에서 동작 (ubuntu-latest 등 변경 가능)
-
+  build:
+    runs-on: windows-latest  # Windows 환경에서 빌드 및 테스트 진행
+    env:
+      VCPKG_ROOT: "${{ github.workspace }}\\vcpkg"  # (선택) vcpkg 루트 경로 설정 - 필수는 아니지만 명시적 지정
+      VCPKG_DEFAULT_TRIPLET: "x64-windows"          # (선택) 기본 타겟 트리플릿 설정 - x64 Windows 대상으로 빌드
     steps:
-      # 1) 레포지토리 체크아웃
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Check out source
+        uses: actions/checkout@v4
         with:
-          submodules: recursive  # vcpkg 등이 서브모듈이면 함께 체크아웃
+          submodules: true       # vcpkg 서브모듈을 함께 체크아웃
+          fetch-depth: 0         # 전체 Git 기록 fetch (shallow clone 방지하여 baseline 커밋 확보)&#8203;:contentReference[oaicite:23]{index=23}
 
-      # 2) vcpkg 부트스트랩 (vcpkg 폴더가 서브모듈이라고 가정)
       - name: Bootstrap vcpkg
         run: .\vcpkg\bootstrap-vcpkg.bat
+        # 설명: vcpkg 서브모듈 초기화 - vcpkg.exe 빌드 (의존 패키지 설치를 위해 필요)
 
-      # 3) vcpkg 패키지 설치 - Boost 패키지 명시적으로 설치
-      - name: Install dependencies with vcpkg
-        run: |
-          .\vcpkg\vcpkg install boost-asio:x64-windows
-          .\vcpkg\vcpkg integrate install
+      - name: Configure CMake (Generate project)
+        run: cmake -B build -S . ^
+                 -DCMAKE_TOOLCHAIN_FILE=.\vcpkg\scripts\buildsystems\vcpkg.cmake ^
+                 -DCMAKE_BUILD_TYPE=Release
+        # 설명: CMake 설정 단계 - vcpkg 툴체인 파일 지정하여 manifest 모드 활성화.
+        #       -B build: 빌드 폴더 생성, -S .: 소스 폴더 지정 (현재 폴더)
+        #       CMAKE_BUILD_TYPE=Release: Release 구성으로 생성 (단, MSVC의 다중 구성에선 --config로 설정)
+        #       이 단계에서 vcpkg manifest에 따라 필요한 패키지들을 자동으로 설치함&#8203;:contentReference[oaicite:24]{index=24}.
 
-      # 4) CMake Configure
-      #    CMAKE_TOOLCHAIN_FILE에 vcpkg를 지정하고, Release 모드 등 필요한 설정을 추가
-      - name: Configure CMake
-        run: cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE="${{github.workspace}}/vcpkg/scripts/buildsystems/vcpkg.cmake" -DCMAKE_BUILD_TYPE=Release
-
-      # 5) CMake Build
-      - name: Build
+      - name: Build (Release)
         run: cmake --build build --config Release
+        # 설명: CMake 빌드 단계 - Release 구성으로 빌드 실행 (빌드된 실행 파일 및 라이브러리 생성)
 
-      # 6) 테스트 실행 (ctest)
-      - name: Test
-        run: ctest --test-dir build --config Release
+      - name: Run tests
+        run: |
+          cd build
+          ctest -C Release --output-on-failure
+        # 설명: 테스트 실행 단계 - CTest를 통해 Release 구성의 모든 테스트 실행.
+        #       실패한 테스트가 있으면 로그를 출력하고, exit code != 0로 CI 실패를 유도.
 
-      # 7) Doxygen 설치 (Windows 환경에서는 Chocolatey 예시)
       - name: Install Doxygen
-        run: choco install doxygen -y
+        run: choco install doxygen.install -y
+        # 설명: Doxygen 설치 - 초콜렛패키지 매니저를 사용하여 Doxygen 도구 설치 (Windows 전용).
 
-      # 8) Doxygen 문서 생성
-      - name: Generate Doxygen
-        run: doxygen docs/Doxyfile
+      - name: Generate Documentation
+        working-directory: docs
+        run: doxygen Doxyfile
+        # 설명: Doxygen 문서 생성 - docs 폴더의 Doxyfile 설정을 사용하여 문서 생성.
+        #       생성된 HTML 등의 출력물은 docs/docs_output 경로 하위에 생김.
 
-      # 9) Doxygen 문서를 빌드 아티팩트로 업로드
-      #    GitHub Actions > 'Artifacts' 탭에서 다운로드 가능
-      - name: Upload docs artifact
+      - name: Upload artifact for Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          name: doxygen-html
-          path: docs_output/html  # Doxyfile에서 OUTPUT_DIRECTORY를 지정했다 가정
+          path: docs/docs_output
+        # 설명: GitHub Pages용 아티팩트 업로드 - 앞서 생성된 docs_output 폴더를 압축하여 업로드.
+        #       이 단계에서 업로드된 내용은 deploy job에서 받아 Pages에 배포됨.
 
   deploy:
-    needs: build-test-docs  # build-test-docs 작업이 성공적으로 끝나야 실행
-
-    # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
+    runs-on: ubuntu-latest  # Pages 배포는 경량 작업이므로 리눅스 러너 사용
+    needs: build            # build job 완료 후 실행
     permissions:
-      pages: write      # to deploy to Pages
-      id-token: write   # to verify the deployment originates from an appropriate source
-
-    # Deploy to the github-pages environment
+      pages: write          # GitHub Pages 배포 권한
+      id-token: write       # OIDC 토큰 권한 (페이지 배포 인증용)
     environment:
-      name: github-pages
+      name: github-pages    # 배포 대상 환경 이름 (github-pages 로 지정 시 Pages 연동)
       url: ${{ steps.deployment.outputs.page_url }}
-
-    # Specify runner + deployment step
-    runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        # 설명: GitHub Pages에 배포 - upload-pages-artifact로 업로드된 사이트 콘텐츠를 Pages에 게시.
+        #       actions/deploy-pages@v4 액션이 Artifact를 자동으로 다운로드하여 설정된 Pages 환경에 배포함.
+        #       id: deployment으로 지정하여, 배포된 페이지 URL을 environment.url에 전달 (steps.deployment.outputs.page_url).
