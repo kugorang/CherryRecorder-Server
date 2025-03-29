@@ -3,6 +3,10 @@
 본 프로젝트는 C++로 작성된 백엔드 서버로, MySQL DB와 연동하여 위치 기반 기능을 제공합니다.  
 Docker, Kubernetes, vcpkg, Doxygen 등을 사용한 CI/CD 및 문서 자동화도 포함하고 있습니다.
 
+## Doxygen
+
+https://kugorang.github.io/CherryRecorder-Server/
+
 ## Directory Structure
 
 ```plaintext
