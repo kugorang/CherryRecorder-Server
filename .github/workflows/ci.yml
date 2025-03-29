@@ -93,12 +93,10 @@ jobs:
         # 설명: 테스트 실행 단계 - CTest를 통해 Release 구성의 모든 테스트 실행.
         #       실패한 테스트가 있으면 로그를 출력하고, exit code != 0로 CI 실패를 유도.
 
-      # 10) Doxygen 설치 최적화 (actions/setup-doxygen 사용)
-      # choco install 보다 빠르고 안정적일 수 있음
-      - name: Setup Doxygen
-        uses: crazy-max/ghaction-setup-doxygen@v3 # 버전은 최신으로 확인
-        with:
-          install-dot: true # Graphviz(dot)도 필요하면 true로 설정
+      # 10) Chocolatey로 doxygen 포터블 버전 설치 (PATH 인식 문제 방지)
+      - name: Install Doxygen
+        run: choco install doxygen.portable -y
+        # 설명: Doxygen 설치 - 초콜렛패키지 매니저를 사용하여 Doxygen 도구 설치 (Windows 전용).
   
       # 11) Doxygen 문서 생성 (docs/Doxyfile 기준)
       - name: Generate Documentation
