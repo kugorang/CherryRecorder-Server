@@ -111,7 +111,7 @@ jobs:
       - name: Upload artifact for Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./docs_output/html
+          path: ./docs/docs_output/html
         # 설명: GitHub Pages용 아티팩트 업로드 - 앞서 생성된 docs_output 폴더를 압축하여 업로드.
         #       이 단계에서 업로드된 내용은 deploy job에서 받아 Pages에 배포됨.
 
