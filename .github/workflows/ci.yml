@@ -135,19 +135,19 @@ jobs:
       #       vcpkg 캐시(1.3, 1.4)가 히트되면 이 의존성 설치 과정은 매우 빠르게 진행됩니다.
       - name: 1.7 Configure CMake project (and install dependencies via vcpkg)
         # run: | 와 함께 여러 줄로 명령어 작성 (PowerShell 사용)
-        run: |
-          # cmake 명령어 실행
-          # -B build: 빌드 결과물을 'build' 디렉토리에 생성하도록 지정합니다.
-          # -S .: 소스 코드 디렉토리를 현재 디렉토리('.')로 지정합니다.
-          # -A x64: 빌드 아키텍처를 64비트로 지정합니다. (Visual Studio Generator 사용 시)
-          cmake -B build -S . -A x64 `
-            # -DCMAKE_TOOLCHAIN_FILE=...: vcpkg에서 제공하는 툴체인 파일을 지정합니다.
-            #                            이를 통해 CMake가 vcpkg를 인식하고 manifest 모드로 동작하게 됩니다.
-            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}\vcpkg\scripts\buildsystems\vcpkg.cmake `
-            # -DCMAKE_BUILD_TYPE=Release: 빌드 유형을 'Release'로 설정합니다. (최적화된 빌드)
-            #                            CMake 변수를 설정할 때는 -D<변수명>=<값> 형식을 사용합니다.
-            -DCMAKE_BUILD_TYPE=Release
+        # cmake 명령어 실행
+        # -B build: 빌드 결과물을 'build' 디렉토리에 생성하도록 지정합니다.
+        # -S .: 소스 코드 디렉토리를 현재 디렉토리('.')로 지정합니다.
+        # -A x64: 빌드 아키텍처를 64비트로 지정합니다. (Visual Studio Generator 사용 시)
+        # -DCMAKE_TOOLCHAIN_FILE=...: vcpkg에서 제공하는 툴체인 파일을 지정합니다.
+        # 이를 통해 CMake가 vcpkg를 인식하고 manifest 모드로 동작하게 됩니다.
+        # -DCMAKE_BUILD_TYPE=Release: 빌드 유형을 'Release'로 설정합니다. (최적화된 빌드)
+        # CMake 변수를 설정할 때는 -D<변수명>=<값> 형식을 사용합니다.
         # shell: powershell 옵션: Windows 환경의 기본 쉘은 PowerShell이며, 백틱(`)을 줄 연속 문자로 사용합니다. 명시적으로 지정.
+        run: |
+          cmake -B build -S . -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}\vcpkg\scripts\buildsystems\vcpkg.cmake `  
+            -DCMAKE_BUILD_TYPE=Release
         shell: powershell
 
       # --------------------------------------------------------------
@@ -167,14 +167,14 @@ jobs:
       # 목적: 빌드된 코드가 예상대로 동작하는지 확인하기 위해 단위 테스트를 실행합니다.
       #       CTest는 CMake와 통합된 테스트 실행 도구입니다.
       - name: 1.9 Run tests via CTest
-        run: |
-          # 테스트 실행 파일 및 설정이 있는 빌드 디렉토리로 이동
-          cd build
+        # 테스트 실행 파일 및 설정이 있는 빌드 디렉토리로 이동
           # CTest 실행
           # -C Release: 테스트할 빌드 구성(Configuration)을 'Release'로 지정합니다.
           # --output-on-failure: 테스트가 실패할 경우에만 상세 출력을 표시합니다. 성공 시에는 조용히 넘어갑니다.
-          ctest -C Release --output-on-failure
           # 원래 디렉토리로 복귀 (필수는 아니지만 좋은 습관)
+        run: |
+          cd build
+          ctest -C Release --output-on-failure
           cd ..
 
   # ==============================================================
