@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]  # main 브랜치 푸시에 CI/CD 실행 (필요에 따라 조정)
   pull_request:
-    branches: [ "main" ]
+    branches: [ main ]
 
 jobs:
   build:
@@ -12,12 +12,13 @@ jobs:
     runs-on: windows-latest  # Windows 환경에서 빌드 및 테스트 진행
     
     steps:
-      # 1) 저장소와 서브모듈을 전부 전체 히스토리(fetch-depth: 0)로 체크아웃
+      # 1) 저장소 체크아웃 (얕은 복사 + 서브모듈)
+      # fetch-depth: 1 로 변경하여 체크아웃 시간 단축 (전체 히스토리 불필요 시)
       - name: Check out source
         uses: actions/checkout@v4
         with:
-          submodules: true       # vcpkg 서브모듈을 함께 체크아웃
-          fetch-depth: 0         # 전체 Git 기록 fetch (shallow clone 방지하여 baseline 커밋 확보)
+          submodules: true # vcpkg 서브모듈 포함
+          fetch-depth: 1   # CI에는 대개 전체 히스토리가 필요 없으므로 얕은 복사 사용
 
       # 2) GitHub Actions 캐시를 vcpkg에서 사용할 수 있도록 환경변수 설정
       #    vcpkg 이슈/문서에 따르면, 이 두 변수 설정 후 VCPKG_BINARY_SOURCES를 x-gha로 설정 시,
@@ -33,30 +34,57 @@ jobs:
       - name: Configure vcpkg binary caching
         run: echo "VCPKG_BINARY_SOURCES=clear;x-gha,readwrite" >> $GITHUB_ENV
 
-      # 4) vcpkg 부트스트랩
+      # 4) vcpkg 관련 디렉토리 캐싱 (actions/cache 사용)
+      # vcpkg 다운로드, 빌드 트리 캐싱 추가
+      # 키는 vcpkg.json 파일의 해시를 기반으로 생성하여, 의존성이 변경될 때만 캐시 미스 발생
+      - name: Cache vcpkg downloads and buildtrees
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/vcpkg/downloads
+            ${{ github.workspace }}/vcpkg/buildtrees
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      # 5) vcpkg 부트스트랩 (캐시 복원 후 실행)
+      # 캐시된 vcpkg가 없을 경우 또는 업데이트 시 필요
       - name: Bootstrap vcpkg
         run: |
-            git submodule update --init --recursive
-            .\vcpkg\bootstrap-vcpkg.bat
+            .\vcpkg\bootstrap-vcpkg.bat -disableMetrics
         # 설명: vcpkg 서브모듈 초기화 - vcpkg.exe 빌드 (의존 패키지 설치를 위해 필요)
+  
+      # 6) CMake 빌드 디렉토리 캐싱
+      # CMake 설정 및 빌드 결과 캐싱하여 재설정/재빌드 시간 단축
+      # 키는 CMakeLists.txt와 vcpkg.json의 해시를 기반으로 함
+      - name: Cache CMake build directory
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/build
+          key: build-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt', '**/vcpkg.json') }}
+          restore-keys: |
+            build-${{ runner.os }}-
 
-      # 5) CMake Configure
+      # 7) CMake Configure
       #    manifest 모드에서 vcpkg.json을 감지하여 의존성 설치. x64-Windows용 Release 빌드
+      # 캐시가 적중하면 vcpkg 설치 과정이 크게 단축되거나 생략됨
       - name: Configure CMake (Generate project)
         run: cmake -B build -S . -A x64 ^
-               -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}\vcpkg\scripts\buildsystems\vcpkg.cmake ^
-               -DCMAKE_BUILD_TYPE=Release
+                -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}\vcpkg\scripts\buildsystems\vcpkg.cmake ^
+                -DCMAKE_BUILD_TYPE=Release
         # 설명: CMake 설정 단계 - vcpkg 툴체인 파일 지정하여 manifest 모드 활성화.
         #       -B build: 빌드 폴더 생성, -S .: 소스 폴더 지정 (현재 폴더)
         #       CMAKE_BUILD_TYPE=Release: Release 구성으로 생성 (단, MSVC의 다중 구성에선 --config로 설정)
         #       이 단계에서 vcpkg manifest에 따라 필요한 패키지들을 자동으로 설치함
+        # 설명: 캐시된 vcpkg 의존성 및 CMake 구성 사용 시도. 캐시 미스 시 vcpkg가 의존성 설치.
 
-      # 6) 빌드
+      # 8) 빌드 (Release)
+      # CMake 캐시가 적중하면 변경된 파일만 빌드되어 시간 단축
       - name: Build (Release)
         run: cmake --build build --config Release
         # 설명: CMake 빌드 단계 - Release 구성으로 빌드 실행 (빌드된 실행 파일 및 라이브러리 생성)
 
-      # 7) 테스트 (ctest)
+      # 9) 테스트 (ctest)
       - name: Run tests
         run: |
           cd build
@@ -65,24 +93,26 @@ jobs:
         # 설명: 테스트 실행 단계 - CTest를 통해 Release 구성의 모든 테스트 실행.
         #       실패한 테스트가 있으면 로그를 출력하고, exit code != 0로 CI 실패를 유도.
 
-      # 8) Chocolatey로 doxygen 포터블 버전 설치 (PATH 인식 문제 방지)
-      - name: Install Doxygen
-        run: choco install doxygen.portable -y
-        # 설명: Doxygen 설치 - 초콜렛패키지 매니저를 사용하여 Doxygen 도구 설치 (Windows 전용).
+      # 10) Doxygen 설치 최적화 (actions/setup-doxygen 사용)
+      # choco install 보다 빠르고 안정적일 수 있음
+      - name: Setup Doxygen
+        uses: crazy-max/ghaction-setup-doxygen@v3 # 버전은 최신으로 확인
+        with:
+          install-dot: true # Graphviz(dot)도 필요하면 true로 설정
   
-      # 9) Doxygen 문서 생성 (docs/Doxyfile 기준)
+      # 11) Doxygen 문서 생성 (docs/Doxyfile 기준)
       - name: Generate Documentation
         working-directory: docs
-        run: doxygen .\docs\Doxyfile
+        run: doxygen Doxyfile
         # 설명: Doxygen 문서 생성 - docs 폴더의 Doxyfile 설정을 사용하여 문서 생성.
         #       생성된 HTML 등의 출력물은 docs/docs_output 경로 하위에 생김.
 
-      # 10) Pages용 아티팩트 업로드
+      # 12) Pages용 아티팩트 업로드
       #     docs/docs_output 폴더(HTML 문서)가 업로드됨 → 다음 잡(deploy)에서 배포
       - name: Upload artifact for Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./docs/docs_output/html
+          path: ./docs_output/html
         # 설명: GitHub Pages용 아티팩트 업로드 - 앞서 생성된 docs_output 폴더를 압축하여 업로드.
         #       이 단계에서 업로드된 내용은 deploy job에서 받아 Pages에 배포됨.
 
