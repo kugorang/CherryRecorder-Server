@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: true # vcpkg 서브모듈 포함
-          fetch-depth: 1   # CI에는 대개 전체 히스토리가 필요 없으므로 얕은 복사 사용
+          fetch-depth: 0   # vcpkg가 Git 히스토리를 참조하므로 전체 히스토리 가져오기
 
       # 2) GitHub Actions 캐시를 vcpkg에서 사용할 수 있도록 환경변수 설정
       #    vcpkg 이슈/문서에 따르면, 이 두 변수 설정 후 VCPKG_BINARY_SOURCES를 x-gha로 설정 시,
@@ -52,6 +52,7 @@ jobs:
       - name: Bootstrap vcpkg
         run: |
             .\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+        shell: cmd # bootstrap-vcpkg.bat는 cmd에서 실행하는 것이 더 안정적일 수 있습니다.
         # 설명: vcpkg 서브모듈 초기화 - vcpkg.exe 빌드 (의존 패키지 설치를 위해 필요)
   
       # 6) CMake 빌드 디렉토리 캐싱
@@ -69,9 +70,10 @@ jobs:
       #    manifest 모드에서 vcpkg.json을 감지하여 의존성 설치. x64-Windows용 Release 빌드
       # 캐시가 적중하면 vcpkg 설치 과정이 크게 단축되거나 생략됨
       - name: Configure CMake (Generate project)
-        run: cmake -B build -S . -A x64 ^
-                -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}\vcpkg\scripts\buildsystems\vcpkg.cmake ^
+        run: cmake -B build -S . -A x64 `
+                -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}\vcpkg\scripts\buildsystems\vcpkg.cmake `
                 -DCMAKE_BUILD_TYPE=Release
+        shell: powershell # 명시적으로 PowerShell 사용 지정 (Windows 기본값이지만 명확히 함)
         # 설명: CMake 설정 단계 - vcpkg 툴체인 파일 지정하여 manifest 모드 활성화.
         #       -B build: 빌드 폴더 생성, -S .: 소스 폴더 지정 (현재 폴더)
         #       CMAKE_BUILD_TYPE=Release: Release 구성으로 생성 (단, MSVC의 다중 구성에선 --config로 설정)
