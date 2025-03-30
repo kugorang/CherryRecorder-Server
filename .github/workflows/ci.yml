@@ -1,41 +1,41 @@
-# GitHub Actions ¿öÅ©ÇÃ·Î¿ì ÀÌ¸§ Á¤ÀÇ
+# GitHub Actions ì›Œí¬í”Œë¡œìš° ì´ë¦„ ì •ì˜
 name: CI - Multi-Job Linux
 
 # ==================================================
-# ¿öÅ©ÇÃ·Î¿ì ½ÇÇà Á¶°Ç (Triggers)
+# ì›Œí¬í”Œë¡œìš° ì‹¤í–‰ ì¡°ê±´ (Triggers)
 # ==================================================
-# ¾î¶² ÀÌº¥Æ®°¡ ¹ß»ıÇßÀ» ¶§ ÀÌ ¿öÅ©ÇÃ·Î¿ì¸¦ ½ÇÇàÇÒÁö Á¤ÀÇÇÕ´Ï´Ù.
+# ì–´ë–¤ ì´ë²¤íŠ¸ê°€ ë°œìƒí–ˆì„ ë•Œ ì´ ì›Œí¬í”Œë¡œìš°ë¥¼ ì‹¤í–‰í• ì§€ ì •ì˜í•©ë‹ˆë‹¤.
 on:
-  # 1. 'main' ºê·£Ä¡·Î ÄÚµå°¡ Çª½Ã(push)µÉ ¶§ ½ÇÇàµË´Ï´Ù.
+  # 1. 'main' ë¸Œëœì¹˜ë¡œ ì½”ë“œê°€ í‘¸ì‹œ(push)ë  ë•Œ ì‹¤í–‰ë©ë‹ˆë‹¤.
   push:
     branches: [ main ]
-  # 2. 'main' ºê·£Ä¡¸¦ ´ë»óÀ¸·Î ÇÏ´Â Ç® ¸®Äù½ºÆ®(pull request)°¡ »ı¼ºµÇ°Å³ª ¾÷µ¥ÀÌÆ®µÉ ¶§ ½ÇÇàµË´Ï´Ù.
+  # 2. 'main' ë¸Œëœì¹˜ë¥¼ ëŒ€ìƒìœ¼ë¡œ í•˜ëŠ” í’€ ë¦¬í€˜ìŠ¤íŠ¸(pull request)ê°€ ìƒì„±ë˜ê±°ë‚˜ ì—…ë°ì´íŠ¸ë  ë•Œ ì‹¤í–‰ë©ë‹ˆë‹¤.
   pull_request:
     branches: [ main ]
 
 # ==================================================
-# ¿öÅ©ÇÃ·Î¿ì ÀÛ¾÷ (Jobs)
+# ì›Œí¬í”Œë¡œìš° ì‘ì—… (Jobs)
 # ==================================================
-# ¿öÅ©ÇÃ·Î¿ì´Â ÇÏ³ª ÀÌ»óÀÇ JobÀ¸·Î ±¸¼ºµÇ¸ç, °¢ JobÀº µ¶¸³ÀûÀÎ È¯°æ¿¡¼­ ½ÇÇàµË´Ï´Ù.
-# ÀÌ ¿öÅ©ÇÃ·Î¿ì´Â 3°³ÀÇ JobÀ¸·Î ±¸¼ºµÇ¾î ¼øÂ÷ÀûÀ¸·Î ½ÇÇàµË´Ï´Ù: ºôµå/Å×½ºÆ® -> ¹®¼­ »ı¼º -> ¹èÆ÷
+# ì›Œí¬í”Œë¡œìš°ëŠ” í•˜ë‚˜ ì´ìƒì˜ Jobìœ¼ë¡œ êµ¬ì„±ë˜ë©°, ê° Jobì€ ë…ë¦½ì ì¸ í™˜ê²½ì—ì„œ ì‹¤í–‰ë©ë‹ˆë‹¤.
+# ì´ ì›Œí¬í”Œë¡œìš°ëŠ” 3ê°œì˜ Jobìœ¼ë¡œ êµ¬ì„±ë˜ì–´ ìˆœì°¨ì ìœ¼ë¡œ ì‹¤í–‰ë©ë‹ˆë‹¤: ë¹Œë“œ/í…ŒìŠ¤íŠ¸ -> ë¬¸ì„œ ìƒì„± -> ë°°í¬
 jobs:
   # ==============================================================
-  # Job 1: CMake ÇÁ·ÎÁ§Æ® ºôµå ¹× Å×½ºÆ® (Linux È¯°æ)
+  # Job 1: CMake í”„ë¡œì íŠ¸ ë¹Œë“œ ë° í…ŒìŠ¤íŠ¸ (Linux í™˜ê²½)
   # ==============================================================
-  # ¸ñÀû: ÇÁ·ÎÁ§Æ® ¼Ò½º ÄÚµå¸¦ ÄÄÆÄÀÏÇÏ°í ´ÜÀ§ Å×½ºÆ®¸¦ ½ÇÇàÇÏ¿© ÄÚµåÀÇ ±âº»ÀûÀÎ ¹«°á¼ºÀ» °ËÁõÇÕ´Ï´Ù.
-  # Æ¯Â¡: vcpkg ÀÇÁ¸¼º °ü¸®, CMake ºôµå ½Ã½ºÅÛ »ç¿ë, Linux(Ubuntu) È¯°æ¿¡¼­ ½ÇÇàµË´Ï´Ù. (Docker ¹èÆ÷ È¯°æ°ú ÀÏÄ¡)
+  # ëª©ì : í”„ë¡œì íŠ¸ ì†ŒìŠ¤ ì½”ë“œë¥¼ ì»´íŒŒì¼í•˜ê³  ë‹¨ìœ„ í…ŒìŠ¤íŠ¸ë¥¼ ì‹¤í–‰í•˜ì—¬ ì½”ë“œì˜ ê¸°ë³¸ì ì¸ ë¬´ê²°ì„±ì„ ê²€ì¦í•©ë‹ˆë‹¤.
+  # íŠ¹ì§•: vcpkg ì˜ì¡´ì„± ê´€ë¦¬, CMake ë¹Œë“œ ì‹œìŠ¤í…œ ì‚¬ìš©, Linux(Ubuntu) í™˜ê²½ì—ì„œ ì‹¤í–‰ë©ë‹ˆë‹¤. (Docker ë°°í¬ í™˜ê²½ê³¼ ì¼ì¹˜)
   cmake_build_test:
     name: 1. CMake Build & Test (Linux)
-    # ½ÇÇà È¯°æ: Docker ÀÌ¹ÌÁö ¹× ÃÖÁ¾ ¹èÆ÷ È¯°æ°ú ÀÏÄ¡½ÃÅ°±â À§ÇØ Ubuntu ÃÖ½Å ¹öÀüÀ» »ç¿ëÇÕ´Ï´Ù.
+    # ì‹¤í–‰ í™˜ê²½: Docker ì´ë¯¸ì§€ ë° ìµœì¢… ë°°í¬ í™˜ê²½ê³¼ ì¼ì¹˜ì‹œí‚¤ê¸° ìœ„í•´ Ubuntu ìµœì‹  ë²„ì „ì„ ì‚¬ìš©í•©ë‹ˆë‹¤.
     runs-on: ubuntu-latest
 
-    # Job ´Ü°è (Steps): Job ³»¿¡¼­ ¼øÂ÷ÀûÀ¸·Î ½ÇÇàµÇ´Â ¸í·É¾î ¶Ç´Â ¾×¼ÇÀÇ ¸ñ·ÏÀÔ´Ï´Ù.
+    # Job ë‹¨ê³„ (Steps): Job ë‚´ì—ì„œ ìˆœì°¨ì ìœ¼ë¡œ ì‹¤í–‰ë˜ëŠ” ëª…ë ¹ì–´ ë˜ëŠ” ì•¡ì…˜ì˜ ëª©ë¡ì…ë‹ˆë‹¤.
     steps:
       # --------------------------------------------------------------
-      # ´Ü°è 1.0: ÇÊ¼ö ºôµå µµ±¸ ¼³Ä¡ (Linux Runner)
+      # ë‹¨ê³„ 1.0: í•„ìˆ˜ ë¹Œë“œ ë„êµ¬ ì„¤ì¹˜ (Linux Runner)
       # --------------------------------------------------------------
-      # ¸ñÀû: Ubuntu Runner¿¡ C++ ÄÄÆÄÀÏ·¯(g++), CMake, Git µî ºôµå ¹× vcpkg¿¡ ÇÊ¿äÇÑ µµ±¸µéÀ» ¼³Ä¡ÇÕ´Ï´Ù.
-      # Âü°í: libmysqlclient-dev´Â vcpkg°¡ mysql-connector-cpp¸¦ ºôµå/¸µÅ©ÇÒ ¶§ ÇÊ¿äÇÒ ¼ö ÀÖ½À´Ï´Ù.
+      # ëª©ì : Ubuntu Runnerì— C++ ì»´íŒŒì¼ëŸ¬(g++), CMake, Git ë“± ë¹Œë“œ ë° vcpkgì— í•„ìš”í•œ ë„êµ¬ë“¤ì„ ì„¤ì¹˜í•©ë‹ˆë‹¤.
+      # ì°¸ê³ : libmysqlclient-devëŠ” vcpkgê°€ mysql-connector-cppë¥¼ ë¹Œë“œ/ë§í¬í•  ë•Œ í•„ìš”í•  ìˆ˜ ìˆìŠµë‹ˆë‹¤.
       - name: 1.0 Install build dependencies
         run: |
           sudo apt-get update
@@ -49,22 +49,22 @@ jobs:
             tar \
             pkg-config \
             ninja-build \
-            # libmysqlclient-dev # mysql-connector-cpp ¸µÅ© ½Ã ÇÊ¿äÇÏ¸é ÁÖ¼® ÇØÁ¦
+            # libmysqlclient-dev # mysql-connector-cpp ë§í¬ ì‹œ í•„ìš”í•˜ë©´ ì£¼ì„ í•´ì œ
 
       # --------------------------------------------------------------
-      # ´Ü°è 1.1: ¼Ò½º ÄÚµå Ã¼Å©¾Æ¿ô
+      # ë‹¨ê³„ 1.1: ì†ŒìŠ¤ ì½”ë“œ ì²´í¬ì•„ì›ƒ
       # --------------------------------------------------------------
-      # ¸ñÀû: Git ÀúÀå¼ÒÀÇ ÃÖ½Å ÄÚµå¸¦ Runner·Î ³»·Á¹Ş½À´Ï´Ù.
+      # ëª©ì : Git ì €ì¥ì†Œì˜ ìµœì‹  ì½”ë“œë¥¼ Runnerë¡œ ë‚´ë ¤ë°›ìŠµë‹ˆë‹¤.
       - name: 1.1 Check out source code repository
         uses: actions/checkout@v4
         with:
-          submodules: true # vcpkg ¼­ºê¸ğµâ Æ÷ÇÔ
-          fetch-depth: 0   # vcpkg baseline Á¶È¸¸¦ À§ÇØ ÀüÃ¼ Git È÷½ºÅä¸® ÇÊ¿ä
+          submodules: true # vcpkg ì„œë¸Œëª¨ë“ˆ í¬í•¨
+          fetch-depth: 0   # vcpkg baseline ì¡°íšŒë¥¼ ìœ„í•´ ì „ì²´ Git íˆìŠ¤í† ë¦¬ í•„ìš”
 
       # --------------------------------------------------------------
-      # ´Ü°è 1.2 & 1.3: vcpkg ¹ÙÀÌ³Ê¸® Ä³½Ì È°¼ºÈ­ (GHA ¿¬µ¿)
+      # ë‹¨ê³„ 1.2 & 1.3: vcpkg ë°”ì´ë„ˆë¦¬ ìºì‹± í™œì„±í™” (GHA ì—°ë™)
       # --------------------------------------------------------------
-      # ¸ñÀû: vcpkg ºôµå ½Ã°£ ´ÜÃàÀ» À§ÇØ GHA Ä³½Ã ¿¬µ¿ ¼³Á¤ (Windows¿Í µ¿ÀÏÇÏ°Ô Àû¿ë)
+      # ëª©ì : vcpkg ë¹Œë“œ ì‹œê°„ ë‹¨ì¶•ì„ ìœ„í•´ GHA ìºì‹œ ì—°ë™ ì„¤ì •
       - name: 1.2 Enable vcpkg GitHub Actions Cache Integration
         uses: actions/github-script@v7
         with:
@@ -75,129 +75,129 @@ jobs:
         run: echo "VCPKG_BINARY_SOURCES=clear;x-gha,readwrite" >> $GITHUB_ENV
 
       # --------------------------------------------------------------
-      # ´Ü°è 1.4: vcpkg ÀÛ¾÷ µğ·ºÅä¸® Ä³½Ì (´Ù¿î·Îµå, ºôµå Áß°£ »êÃâ¹°)
+      # ë‹¨ê³„ 1.4: vcpkg ì‘ì—… ë””ë ‰í† ë¦¬ ìºì‹± (ë‹¤ìš´ë¡œë“œ, ë¹Œë“œ ì¤‘ê°„ ì‚°ì¶œë¬¼)
       # --------------------------------------------------------------
-      # ¸ñÀû: vcpkg ¼Ò½º ´Ù¿î·Îµå ¹× ºôµå Áß°£ ÆÄÀÏ Ä³½Ì (Windows¿Í µ¿ÀÏ)
+      # ëª©ì : vcpkg ì†ŒìŠ¤ ë‹¤ìš´ë¡œë“œ ë° ë¹Œë“œ ì¤‘ê°„ íŒŒì¼ ìºì‹±
       - name: 1.4 Cache vcpkg downloads and buildtrees directories
         uses: actions/cache@v4
         with:
           path: |
             ${{ github.workspace }}/vcpkg/downloads
             ${{ github.workspace }}/vcpkg/buildtrees
-          # keyÀÇ runner.os ºÎºĞÀº ÀÚµ¿À¸·Î 'Linux'·Î º¯°æµÇ¾î Àû¿ëµË´Ï´Ù.
+          # keyì˜ runner.os ë¶€ë¶„ì€ ìë™ìœ¼ë¡œ 'Linux'ë¡œ ë³€ê²½ë˜ì–´ ì ìš©ë©ë‹ˆë‹¤.
           key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-
 
       # --------------------------------------------------------------
-      # ´Ü°è 1.5: vcpkg ºÎÆ®½ºÆ®·¦ (Linux ¿ë)
+      # ë‹¨ê³„ 1.5: vcpkg ë¶€íŠ¸ìŠ¤íŠ¸ë© (Linux ìš©)
       # --------------------------------------------------------------
-      # ¸ñÀû: Linux È¯°æ¿ë vcpkg ½ÇÇà ÆÄÀÏÀ» »ı¼ºÇÕ´Ï´Ù.
+      # ëª©ì : Linux í™˜ê²½ìš© vcpkg ì‹¤í–‰ íŒŒì¼ì„ ìƒì„±í•©ë‹ˆë‹¤.
       - name: 1.5 Bootstrap vcpkg (Build vcpkg executable for Linux)
-        # Linux È¯°æ¿¡¼­´Â bootstrap-vcpkg.sh ½ºÅ©¸³Æ® »ç¿ë
+        # Linux í™˜ê²½ì—ì„œëŠ” bootstrap-vcpkg.sh ìŠ¤í¬ë¦½íŠ¸ ì‚¬ìš©
         run: ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
       # --------------------------------------------------------------
-      # ´Ü°è 1.6: CMake ºôµå µğ·ºÅä¸® Ä³½Ì
+      # ë‹¨ê³„ 1.6: CMake ë¹Œë“œ ë””ë ‰í† ë¦¬ ìºì‹±
       # --------------------------------------------------------------
-      # ¸ñÀû: CMake ºôµå µğ·ºÅä¸® Ä³½Ì (Windows¿Í µ¿ÀÏ)
+      # ëª©ì : CMake ë¹Œë“œ ë””ë ‰í† ë¦¬ ìºì‹± (Windowsì™€ ë™ì¼)
       - name: 1.6 Cache CMake build directory
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/build
-          # keyÀÇ runner.os ºÎºĞÀº ÀÚµ¿À¸·Î 'Linux'·Î º¯°æµÇ¾î Àû¿ëµË´Ï´Ù.
+          # keyì˜ runner.os ë¶€ë¶„ì€ ìë™ìœ¼ë¡œ 'Linux'ë¡œ ë³€ê²½ë˜ì–´ ì ìš©ë©ë‹ˆë‹¤.
           key: build-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt', '**/vcpkg.json') }}
           restore-keys: |
             build-${{ runner.os }}-
 
       # --------------------------------------------------------------
-      # ´Ü°è 1.7: CMake Configure (Linux ¿ë)
+      # ë‹¨ê³„ 1.7: CMake Configure (Linux ìš©)
       # --------------------------------------------------------------
-      # ¸ñÀû: Linux È¯°æ¿¡¼­ CMake¸¦ ±¸¼ºÇÏ°í vcpkg ÀÇÁ¸¼ºÀ» ÇØ°áÇÕ´Ï´Ù.
+      # ëª©ì : Linux í™˜ê²½ì—ì„œ CMakeë¥¼ êµ¬ì„±í•˜ê³  vcpkg ì˜ì¡´ì„±ì„ í•´ê²°í•©ë‹ˆë‹¤.
       - name: 1.7 Configure CMake project (Linux)
-        # CMake ¸í·É¾î ½ÇÇà (Linux È¯°æ¿¡ ¸Â°Ô Á¶Á¤)
-        # -G Ninja: Ninja ºôµå ½Ã½ºÅÛ »ç¿ë (CMakePresets.json°ú ÀÏÄ¡, ÀÏ¹İÀûÀ¸·Î ºü¸§)
-        # -A x64 Á¦°Å: Linux¿¡¼­´Â ¾ÆÅ°ÅØÃ³¸¦ ÀÌ·¸°Ô ÁöÁ¤ÇÏÁö ¾ÊÀ½ (ÅøÃ¼ÀÎÀÌ Ã³¸®)
-        # vcpkg ÅøÃ¼ÀÎ °æ·Î ±¸ºĞÀÚ º¯°æ (/)
-        # ÁÙ ¿¬¼Ó ºÒÇÊ¿ä (ÇÑ ÁÙ·Î ÀÛ¼º) ¶Ç´Â BashÀÇ ¹é½½·¡½Ã(\) »ç¿ë
+        # CMake ëª…ë ¹ì–´ ì‹¤í–‰ (Linux í™˜ê²½ì— ë§ê²Œ ì¡°ì •)
+        # -G Ninja: Ninja ë¹Œë“œ ì‹œìŠ¤í…œ ì‚¬ìš© (CMakePresets.jsonê³¼ ì¼ì¹˜, ì¼ë°˜ì ìœ¼ë¡œ ë¹ ë¦„)
+        # -A x64 ì œê±°: Linuxì—ì„œëŠ” ì•„í‚¤í…ì²˜ë¥¼ ì´ë ‡ê²Œ ì§€ì •í•˜ì§€ ì•ŠìŒ (íˆ´ì²´ì¸ì´ ì²˜ë¦¬)
+        # vcpkg íˆ´ì²´ì¸ ê²½ë¡œ êµ¬ë¶„ì ë³€ê²½ (/)
+        # ì¤„ ì—°ì† ë¶ˆí•„ìš” (í•œ ì¤„ë¡œ ì‘ì„±) ë˜ëŠ” Bashì˜ ë°±ìŠ¬ë˜ì‹œ(\) ì‚¬ìš©
         run: >
           cmake -S . -B build
           -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
-          -DVCPKG_TARGET_TRIPLET=x64-linux # Linux¿ë vcpkg triplet ¸í½Ã
+          -DVCPKG_TARGET_TRIPLET=x64-linux # Linuxìš© vcpkg triplet ëª…ì‹œ
 
       # --------------------------------------------------------------
-      # ´Ü°è 1.8: CMake Build (Linux ¿ë)
+      # ë‹¨ê³„ 1.8: CMake Build (Linux ìš©)
       # --------------------------------------------------------------
-      # ¸ñÀû: Linux È¯°æ¿¡¼­ ÇÁ·ÎÁ§Æ®¸¦ ÄÄÆÄÀÏÇÕ´Ï´Ù.
+      # ëª©ì : Linux í™˜ê²½ì—ì„œ í”„ë¡œì íŠ¸ë¥¼ ì»´íŒŒì¼í•©ë‹ˆë‹¤.
       - name: 1.8 Build Project using CMake (Linux)
-        # --config Release Á¦°Å: Ninja µî ´ÜÀÏ ±¸¼º »ı¼º±â¿¡¼­´Â ÇÊ¿ä ¾øÀ½
-        # -j $(nproc): »ç¿ë °¡´ÉÇÑ CPU ÄÚ¾î¸¦ ÃÖ´ëÇÑ È°¿ëÇÏ¿© º´·Ä ºôµå ¼öÇà (¼Óµµ Çâ»ó)
+        # --config Release ì œê±°: Ninja ë“± ë‹¨ì¼ êµ¬ì„± ìƒì„±ê¸°ì—ì„œëŠ” í•„ìš” ì—†ìŒ
+        # -j $(nproc): ì‚¬ìš© ê°€ëŠ¥í•œ CPU ì½”ì–´ë¥¼ ìµœëŒ€í•œ í™œìš©í•˜ì—¬ ë³‘ë ¬ ë¹Œë“œ ìˆ˜í–‰ (ì†ë„ í–¥ìƒ)
         run: cmake --build build -j $(nproc)
 
       # --------------------------------------------------------------
-      # ´Ü°è 1.9: Å×½ºÆ® ½ÇÇà (Linux ¿ë)
+      # ë‹¨ê³„ 1.9: í…ŒìŠ¤íŠ¸ ì‹¤í–‰ (Linux ìš©)
       # --------------------------------------------------------------
-      # ¸ñÀû: Linux È¯°æ¿¡¼­ ºôµåµÈ Å×½ºÆ®¸¦ ½ÇÇàÇÕ´Ï´Ù.
+      # ëª©ì : Linux í™˜ê²½ì—ì„œ ë¹Œë“œëœ í…ŒìŠ¤íŠ¸ë¥¼ ì‹¤í–‰í•©ë‹ˆë‹¤.
       - name: 1.9 Run tests via CTest (Linux)
-        # CTest ½ÇÇà (Linux È¯°æ¿¡ ¸Â°Ô Á¶Á¤)
-        # -C Release Á¦°Å: ´ÜÀÏ ±¸¼º »ı¼º±â¿¡¼­´Â ÇÊ¿ä ¾øÀ½
+        # CTest ì‹¤í–‰ (Linux í™˜ê²½ì— ë§ê²Œ ì¡°ì •)
+        # -C Release ì œê±°: ë‹¨ì¼ êµ¬ì„± ìƒì„±ê¸°ì—ì„œëŠ” í•„ìš” ì—†ìŒ
         run: |
           cd build
           ctest --output-on-failure
           cd ..
 
   # ==============================================================
-  # Job 2: Doxygen ¹®¼­ »ı¼º (Linux È¯°æ)
+  # Job 2: Doxygen ë¬¸ì„œ ìƒì„± (Linux í™˜ê²½)
   # ==============================================================
-  # ¸ñÀû: ÇÁ·ÎÁ§Æ® ¼Ò½º ÄÚµå¸¦ ºĞ¼®ÇÏ¿© DoxygenÀ¸·Î API ¹®¼­¸¦ »ı¼ºÇÏ°í, ¹èÆ÷¸¦ À§ÇØ ÁØºñÇÕ´Ï´Ù.
-  # ÀÇÁ¸¼º: ÀÌ JobÀº 'cmake_build_test' JobÀÌ ¼º°øÇØ¾ß¸¸ ½ÃÀÛµË´Ï´Ù.
+  # ëª©ì : í”„ë¡œì íŠ¸ ì†ŒìŠ¤ ì½”ë“œë¥¼ ë¶„ì„í•˜ì—¬ Doxygenìœ¼ë¡œ API ë¬¸ì„œë¥¼ ìƒì„±í•˜ê³ , ë°°í¬ë¥¼ ìœ„í•´ ì¤€ë¹„í•©ë‹ˆë‹¤.
+  # ì˜ì¡´ì„±: ì´ Jobì€ 'cmake_build_test' Jobì´ ì„±ê³µí•´ì•¼ë§Œ ì‹œì‘ë©ë‹ˆë‹¤.
   generate_docs:
     name: 2. Generate Documentation (Linux)
-    # ½ÇÇà È¯°æ: Doxygen µµ±¸¸¦ apt·Î ¼³Ä¡ÇÒ ¼ö ÀÖ´Â Ubuntu È¯°æ »ç¿ë
+    # ì‹¤í–‰ í™˜ê²½: Doxygen ë„êµ¬ë¥¼ aptë¡œ ì„¤ì¹˜í•  ìˆ˜ ìˆëŠ” Ubuntu í™˜ê²½ ì‚¬ìš©
     runs-on: ubuntu-latest
-    needs: cmake_build_test # ÀÌÀü Job(ºôµå/Å×½ºÆ®) ¼º°ø ½Ã ½ÇÇà
+    needs: cmake_build_test # ì´ì „ Job(ë¹Œë“œ/í…ŒìŠ¤íŠ¸) ì„±ê³µ ì‹œ ì‹¤í–‰
 
     steps:
       # --------------------------------------------------------------
-      # ´Ü°è 2.1: ¼Ò½º ÄÚµå Ã¼Å©¾Æ¿ô (¹®¼­ »ı¼ºÀ» À§ÇØ)
+      # ë‹¨ê³„ 2.1: ì†ŒìŠ¤ ì½”ë“œ ì²´í¬ì•„ì›ƒ (ë¬¸ì„œ ìƒì„±ì„ ìœ„í•´)
       # --------------------------------------------------------------
       - name: 2.1 Check out source code for documentation
         uses: actions/checkout@v4
-        # ÃÖÀûÈ­ Âü°í (ÇÊ¿ä½Ã ÁÖ¼® ÇØÁ¦)
+        # ìµœì í™” ì°¸ê³  (í•„ìš”ì‹œ ì£¼ì„ í•´ì œ)
         # with:
         #   fetch-depth: 1
         #   submodules: false
 
       # --------------------------------------------------------------
-      # ´Ü°è 2.2: Doxygen ¼³Ä¡ (Linux Runner)
+      # ë‹¨ê³„ 2.2: Doxygen ì„¤ì¹˜ (Linux Runner)
       # --------------------------------------------------------------
-      # ¸ñÀû: Ubuntu Runner¿¡ Doxygen ¹× °ü·Ã µµ±¸(Graphviz) ¼³Ä¡
+      # ëª©ì : Ubuntu Runnerì— Doxygen ë° ê´€ë ¨ ë„êµ¬(Graphviz) ì„¤ì¹˜
       - name: 2.2 Install Doxygen tool
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends doxygen graphviz
 
       # --------------------------------------------------------------
-      # ´Ü°è 2.3: Doxygen ¹®¼­ »ı¼º ½ÇÇà
+      # ë‹¨ê³„ 2.3: Doxygen ë¬¸ì„œ ìƒì„± ì‹¤í–‰
       # --------------------------------------------------------------
       - name: 2.3 Generate Documentation using Doxygen
         run: doxygen ./docs/Doxyfile
 
       # --------------------------------------------------------------
-      # ´Ü°è 2.4: GitHub Pages ¹èÆ÷¿ë ¾ÆÆ¼ÆÑÆ® ¾÷·Îµå
+      # ë‹¨ê³„ 2.4: GitHub Pages ë°°í¬ìš© ì•„í‹°íŒ©íŠ¸ ì—…ë¡œë“œ
       # --------------------------------------------------------------
       - name: 2.4 Upload artifact for Pages deployment
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./docs_output/html # ½ÇÁ¦ Doxygen Ãâ·Â °æ·Î È®ÀÎ ÇÊ¿ä
+          path: ./docs/docs_output/html # ì‹¤ì œ Doxygen ì¶œë ¥ ê²½ë¡œ í™•ì¸ í•„ìš”
 
   # ==============================================================
-  # Job 3: GitHub Pages ¹èÆ÷ (Ubuntu È¯°æ) - º¯°æ ¾øÀ½
+  # Job 3: GitHub Pages ë°°í¬ (Ubuntu í™˜ê²½)
   # ==============================================================
-  # ¸ñÀû: 'generate_docs' Job¿¡¼­ »ı¼ºÇÑ ¹®¼­¸¦ GitHub Pages »çÀÌÆ®·Î °Ô½Ã(¹èÆ÷)ÇÕ´Ï´Ù.
-  # ÀÇÁ¸¼º: ÀÌ JobÀº 'generate_docs' JobÀÌ ¼º°øÇØ¾ß¸¸ ½ÃÀÛµË´Ï´Ù.
+  # ëª©ì : 'generate_docs' Jobì—ì„œ ìƒì„±í•œ ë¬¸ì„œë¥¼ GitHub Pages ì‚¬ì´íŠ¸ë¡œ ê²Œì‹œ(ë°°í¬)í•©ë‹ˆë‹¤.
+  # ì˜ì¡´ì„±: ì´ Jobì€ 'generate_docs' Jobì´ ì„±ê³µí•´ì•¼ë§Œ ì‹œì‘ë©ë‹ˆë‹¤.
   deploy_pages:
     name: 3. Deploy Documentation to GitHub Pages
     runs-on: ubuntu-latest
@@ -212,3 +212,107 @@ jobs:
       - name: 3.1 Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  # ==============================================================
+  # Job 4: Docker ì´ë¯¸ì§€ ë¹Œë“œ ë° AWS ECR í‘¸ì‹œ (Ubuntu í™˜ê²½)
+  # ==============================================================
+  docker_build_push:
+    name: 4. Build and Push Docker Image to AWS ECR
+    runs-on: ubuntu-latest
+    needs: cmake_build_test # Linux ë¹Œë“œ/í…ŒìŠ¤íŠ¸ ì„±ê³µ í›„ ì‹¤í–‰
+
+    steps:
+      # ë‹¨ê³„ 4.1: ì†ŒìŠ¤ ì½”ë“œ ì²´í¬ì•„ì›ƒ
+      - name: 4.1 Check out source code repository
+        uses: actions/checkout@v4
+        # with: { fetch-depth: 1 } # ì „ì²´ íˆìŠ¤í† ë¦¬ ë¶ˆí•„ìš” ì‹œ
+
+      # ë‹¨ê³„ 4.2: AWS ìê²© ì¦ëª… ì„¤ì •
+      - name: 4.2 Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          # (OIDC ì‚¬ìš© ì‹œ ì„¤ì • ë³€ê²½)
+
+      # ë‹¨ê³„ 4.3: AWS ECR ë¡œê·¸ì¸
+      - name: 4.3 Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ë‹¨ê³„ 4.4: Docker ì´ë¯¸ì§€ ë¹Œë“œ ë° íƒœê·¸ ì§€ì •
+      - name: 4.4 Build and tag Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }} # Secret ë³€ìˆ˜ ì‚¬ìš©
+          IMAGE_TAG: ${{ github.sha }}
+        # Dockerfile ì‚¬ìš©í•˜ì—¬ ë¹Œë“œ, ECR ì£¼ì†Œ ë° commit SHA, latestë¡œ íƒœê·¸ ì§€ì •
+        run: docker build . --tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --tag $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      # ë‹¨ê³„ 4.5: Docker ì´ë¯¸ì§€ í‘¸ì‹œ
+      - name: 4.5 Push Docker image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+  # ==============================================================
+  # Job 5: AWSì— ì• í”Œë¦¬ì¼€ì´ì…˜ ë°°í¬ (Ubuntu í™˜ê²½)
+  # ==============================================================
+  # ëª©ì : ECRì— í‘¸ì‹œëœ ìµœì‹  Docker ì´ë¯¸ì§€ë¥¼ ì‚¬ìš©í•˜ì—¬ AWS í™˜ê²½ì— ë°°í¬(ì—…ë°ì´íŠ¸)í•©ë‹ˆë‹¤.
+  # ì£¼ì˜: ì´ Jobì˜ ë‚´ìš©ì€ ì‚¬ìš©í•˜ëŠ” AWS ì„œë¹„ìŠ¤(EC2, ECS, EKS, CodeDeploy ë“±)ì— ë”°ë¼ ì™„ì „íˆ ë‹¬ë¼ì§‘ë‹ˆë‹¤!
+  deploy_aws:
+    name: 5. Deploy Application to AWS (Example)
+    runs-on: ubuntu-latest
+    needs: docker_build_push # Docker ì´ë¯¸ì§€ í‘¸ì‹œ ì„±ê³µ í›„ ì‹¤í–‰
+
+    steps:
+      # ë‹¨ê³„ 5.1: AWS ìê²© ì¦ëª… ì„¤ì •
+      - name: 5.1 Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # ë‹¨ê³„ 5.2: ë°°í¬ ì‹¤í–‰ (ì‹¤ì œ í™˜ê²½ì— ë§ê²Œ ìˆ˜ì • í•„ìˆ˜!)
+      - name: 5.2 Trigger deployment (Replace with actual commands)
+        run: |
+          echo "AWS ë°°í¬ ëª…ë ¹ì–´ë¥¼ ì—¬ê¸°ì— ì‘ì„±í•˜ì„¸ìš”."
+          echo "ì˜ˆ: aws ecs update-service --cluster ... --force-new-deployment"
+          echo "ë°°í¬ ë° ì• í”Œë¦¬ì¼€ì´ì…˜ ì‹œì‘ ëŒ€ê¸°..."
+          sleep 60 # ì‹¤ì œ í•„ìš”í•œ ëŒ€ê¸° ì‹œê°„ìœ¼ë¡œ ì¡°ì •
+
+  # ==============================================================
+  # Job 6: ë°°í¬ëœ ì„œë²„ Telnet í™•ì¸ (Ubuntu í™˜ê²½)
+  # ==============================================================
+  # ëª©ì : AWSì— ë°°í¬ëœ ì• í”Œë¦¬ì¼€ì´ì…˜ ì„œë²„ í¬íŠ¸ë¡œ ì—°ê²°ì„ ì‹œë„í•˜ì—¬ ì‘ë‹µ ì—¬ë¶€ë¥¼ í™•ì¸í•©ë‹ˆë‹¤.
+  telnet_check:
+    name: 6. Perform Connection Check to AWS Server
+    runs-on: ubuntu-latest
+    needs: deploy_aws # AWS ë°°í¬ ì„±ê³µ í›„ ì‹¤í–‰
+
+    steps:
+      # ë‹¨ê³„ 6.1: ì—°ê²° í™•ì¸ ë„êµ¬ ì„¤ì¹˜ (netcat ê¶Œì¥)
+      - name: 6.1 Install netcat
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends netcat
+
+      # ë‹¨ê³„ 6.2: ì—°ê²° ì‹œë„ (Telnet ëŒ€ì‹  nc ì‚¬ìš©)
+      - name: 6.2 Attempt connection using netcat
+        env:
+          SERVER_ADDRESS: ${{ secrets.SERVER_ADDRESS }} # Secret ë³€ìˆ˜ ì‚¬ìš©
+          SERVER_PORT: ${{ secrets.SERVER_PORT }}       # Secret ë³€ìˆ˜ ì‚¬ìš©
+        # nc ëª…ë ¹ì–´ë¡œ ì§€ì •ëœ ì£¼ì†Œ/í¬íŠ¸ì— ì—°ê²° ì‹œë„ (-z: ìŠ¤ìº”, -v: ìƒì„¸, -w 5: íƒ€ì„ì•„ì›ƒ 5ì´ˆ)
+        run: |
+          echo "Attempting to connect to $SERVER_ADDRESS on port $SERVER_PORT..."
+          if nc -z -v -w 5 $SERVER_ADDRESS $SERVER_PORT; then
+            echo "Connection successful!"
+          else
+            echo "Connection failed!"
+            exit 1 # ì—°ê²° ì‹¤íŒ¨ ì‹œ ì›Œí¬í”Œë¡œìš° ì‹¤íŒ¨ ì²˜ë¦¬
+          fi

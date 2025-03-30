@@ -1,4 +1,4 @@
-﻿# CMakeList.txt: CherryRecorder-Server에 대한 CMake 프로젝트, 여기에 소스를 포함하고
+# CMakeList.txt: CherryRecorder-Server에 대한 CMake 프로젝트, 여기에 소스를 포함하고
 # 프로젝트 특정 논리를 정의합니다.
 #
 cmake_minimum_required (VERSION 3.8)
