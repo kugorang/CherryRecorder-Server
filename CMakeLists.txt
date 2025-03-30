@@ -3,6 +3,22 @@
 #
 cmake_minimum_required (VERSION 3.8)
 
+# --- 타겟 Windows 버전 정의 (Windows 10 이상) ---
+if(WIN32)
+  # Windows 10 버전 코드는 0x0A00 입니다.
+  # 다른 버전을 원할 경우 해당 버전 코드로 변경하세요. (예: Windows 7 = 0x0601)
+  add_definitions(-D_WIN32_WINNT=0x0A00)
+  message(STATUS "Targeting Windows 10 or later (_WIN32_WINNT=0x0A00)")
+endif()
+# --- 버전 정의 끝 ---
+
+# --- MSVC 사용 시 /utf-8 컴파일 옵션 추가 (이전 단계에서 추가) ---
+if(MSVC)
+  add_compile_options(/utf-8)
+  message(STATUS "MSVC: '/utf-8' compile option added.")
+endif()
+# --- 옵션 추가 끝 ---
+
 # 경로: 서브모듈로 추가된 vcpkg 폴더
 set(CMAKE_TOOLCHAIN_FILE 
     "${CMAKE_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake"
@@ -45,13 +61,23 @@ if (CMAKE_VERSION VERSION_GREATER 3.12)
 endif()
 
 # TODO: 필요한 경우 테스트를 추가하고 대상을 설치합니다.
-enable_testing()
-find_package(GTest CONFIG REQUIRED)
-add_executable(CherryRecorder-Server-Testing
-    tests/test_main.cpp
-    tests/test_echo_server.cpp
-)
-target_link_libraries(CherryRecorder-Server-Testing
-    PRIVATE CherryRecorder-Server GTest::gtest_main)
+# BUILD_TESTING 옵션이 ON일 때만 테스트 관련 설정을 처리합니다.
+option(BUILD_TESTING "Build the tests" ON) # 기본적으로 테스트 빌드 활성화 (CI 등에서 사용)
 
-add_test(NAME CherryRecorderServerTest COMMAND CherryRecorder-Server-Testing)
+if (BUILD_TESTING)
+  enable_testing()  # CTest 활성화
+  find_package(GTest CONFIG REQUIRED)   # GTest 패키지 찾기
+  add_executable(CherryRecorder-Server-Testing  # 테스트 실행 파일 정의
+      tests/test_main.cpp
+      tests/test_echo_server.cpp
+  )
+  # 테스트 실행 파일에 필요한 라이브러리 링크
+  target_link_libraries(CherryRecorder-Server-Testing
+      PRIVATE CherryRecorder-Server GTest::gtest_main)
+
+  # CTest에 테스트 추가
+  add_test(NAME CherryRecorderServerTest COMMAND CherryRecorder-Server-Testing)
+  message(STATUS "BUILD_TESTING is ON. Building tests.")
+else()
+  message(STATUS "BUILD_TESTING is OFF. Not building tests.")
+endif()

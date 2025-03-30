@@ -220,20 +220,25 @@ jobs:
     name: 4. Build and Push Docker Image to AWS ECR
     runs-on: ubuntu-latest
     needs: cmake_build_test # Linux 빌드/테스트 성공 후 실행
-
+    # --- OIDC를 위한 권한 추가 ---
+    permissions:
+      id-token: write # OIDC ID 토큰을 요청할 수 있는 권한 (필수)
+      contents: read  # 코드를 체크아웃하기 위한 권한 (대부분 필요)
     steps:
       # 단계 4.1: 소스 코드 체크아웃
       - name: 4.1 Check out source code repository
         uses: actions/checkout@v4
         # with: { fetch-depth: 1 } # 전체 히스토리 불필요 시
 
-      # 단계 4.2: AWS 자격 증명 설정
-      - name: 4.2 Configure AWS Credentials
+      # 단계 4.2: AWS 자격 증명 설정 (OIDC 사용하도록 수정)
+      - name: 4.2 Configure AWS Credentials using OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          # aws-access-key-id 와 aws-secret-access-key 는 제거합니다!
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }} # 맡을 IAM 역할 ARN (Secret 사용)
+          aws-region: ${{ secrets.AWS_REGION }}             # AWS 리전
+          # role-session-name: 역할 세션 이름 지정 (선택 사항, CloudTrail 로그 추적에 유용)
+          role-session-name: GitHubActions-ECR-${{ github.run_id }}-${{ github.job }}
           # (OIDC 사용 시 설정 변경)
 
       # 단계 4.3: AWS ECR 로그인
@@ -245,9 +250,10 @@ jobs:
       - name: 4.4 Build and tag Docker image
         id: build-image
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }} # ECR 레지스트리 주소 (login-ecr 스텝 출력값 사용)
           ECR_REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }} # Secret 변수 사용
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ github.sha }}  # 이미지 태그: 현재 커밋의 SHA 사용 (고유성 및 추적 용이성)
+          DOCKER_BUILDKIT: 1    # Docker BuildKit 사용 명시 (성능 및 캐싱 향상)
         # Dockerfile 사용하여 빌드, ECR 주소 및 commit SHA, latest로 태그 지정
         run: docker build . --tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --tag $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
@@ -257,36 +263,113 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }}
           IMAGE_TAG: ${{ github.sha }}
+        # 두 개의 태그(commit-sha, latest)를 모두 푸시합니다.
         run: |
+          echo "Pushing image with tag $IMAGE_TAG..."
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "Pushing image with tag latest..."
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
+      # 단계 4.6 (선택 사항): 이미지 취약점 스캔
+      # 푸시된 이미지에 대해 보안 취약점 스캔을 수행할 수 있습니다 (예: Trivy 사용).
+      # - name: 4.6 Scan image for vulnerabilities (Optional using Trivy)
+      #   uses: aquasecurity/trivy-action@master
+      #   with:
+      #     image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ secrets.AWS_ECR_REPOSITORY }}:${{ github.sha }}'
+      #     format: 'table'
+      #     exit-code: '1' # 높은 심각도(HIGH, CRITICAL) 취약점 발견 시 워크플로우 실패 처리
+      #     ignore-unfixed: true
+      #     vuln-type: 'os,library'
+      #     severity: 'CRITICAL,HIGH'
+
   # ==============================================================
-  # Job 5: AWS에 애플리케이션 배포 (Ubuntu 환경)
+  # Job 5: AWS에 애플리케이션 배포 (EC2 유형 - Ubuntu + OIDC)
   # ==============================================================
-  # 목적: ECR에 푸시된 최신 Docker 이미지를 사용하여 AWS 환경에 배포(업데이트)합니다.
-  # 주의: 이 Job의 내용은 사용하는 AWS 서비스(EC2, ECS, EKS, CodeDeploy 등)에 따라 완전히 달라집니다!
+  # 목적: ECR에 푸시된 최신 Docker 이미지를 사용하여 ECS EC2 클러스터에 배포(업데이트)합니다.
   deploy_aws:
-    name: 5. Deploy Application to AWS (Example)
+    name: 5. Deploy Application to AWS (EC2 Type - OIDC)
     runs-on: ubuntu-latest
     needs: docker_build_push # Docker 이미지 푸시 성공 후 실행
 
+    permissions:
+      id-token: write # AWS OIDC 인증에 필수
+      contents: read
+
     steps:
-      # 단계 5.1: AWS 자격 증명 설정
-      - name: 5.1 Configure AWS Credentials
+      # 단계 5.1: AWS 자격 증명 설정 (OIDC 사용)
+      - name: 5.1 Configure AWS Credentials using OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: GitHubActions-Deploy-${{ github.run_id }}
 
-      # 단계 5.2: 배포 실행 (실제 환경에 맞게 수정 필수!)
-      - name: 5.2 Trigger deployment (Replace with actual commands)
+      # 단계 5.2: 새 작업 정의 생성 또는 업데이트
+      # 목적: ECR에 푸시된 최신 이미지 태그를 사용하도록 작업 정의를 업데이트합니다.
+      # 방법: 기존 작업 정의를 가져와 image 부분만 변경하고 새 리비전으로 등록합니다.
+      - name: 5.2 Register New Task Definition Revision
+        id: register-task-def
+        env:
+          # Job 4의 출력을 사용하거나 Secrets/변수 사용 (login-ecr 스텝이 Job 4에 있다고 가정)
+          # ECR_REGISTRY: ${{ needs.docker_build_push.outputs.registry }} # Job 출력 사용 예시 (Job 4에 outputs 설정 필요)
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }} # 계정 ID Secret 필요 시
+          ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com # 직접 구성 예시
+          ECR_REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
+          TASK_DEFINITION_FAMILY: cherryrecorder-task-def # 실제 작업 정의 패밀리 이름
+          CONTAINER_NAME: cherryrecorder-server-container # 작업 정의 내 컨테이너 이름
         run: |
-          echo "AWS 배포 명령어를 여기에 작성하세요."
-          echo "예: aws ecs update-service --cluster ... --force-new-deployment"
-          echo "배포 및 애플리케이션 시작 대기..."
-          sleep 60 # 실제 필요한 대기 시간으로 조정
+          echo "Fetching current task definition..."
+          # 기존 작업 정의 내용 가져오기 (jq 필요: sudo apt-get install jq)
+          TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition $TASK_DEFINITION_FAMILY --query 'taskDefinition' --output json)
+
+          echo "Updating image tag..."
+          # 이미지 정보만 새 태그로 변경 (jq 사용 예시)
+          NEW_IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE_URI "$NEW_IMAGE_URI" --arg CONTAINER_NAME "$CONTAINER_NAME" '
+            # family, taskRoleArn 등 주요 필드만 선택하고, containerDefinitions 수정
+            {family: .family, taskRoleArn: .taskRoleArn, executionRoleArn: .executionRoleArn, networkMode: .networkMode, requiresCompatibilities: .requiresCompatibilities, cpu: .cpu, memory: .memory, containerDefinitions: [
+              .containerDefinitions[] | if .name == $CONTAINER_NAME then .image = $IMAGE_URI else . end
+            ] }
+          ')
+          # 위 jq 명령어는 예시이며, 실제 작업 정의 구조에 맞게 필드를 선택/수정해야 함
+
+          echo "Registering new task definition revision..."
+          # 수정된 내용으로 새 리비전 등록
+          NEW_TASK_INFO=$(aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEFINITION")
+          # 등록된 새 작업 정의 ARN을 출력으로 설정
+          NEW_TASK_DEF_ARN=$(echo $NEW_TASK_INFO | jq -r .taskDefinition.taskDefinitionArn)
+          echo "New Task Definition ARN: $NEW_TASK_DEF_ARN"
+          echo "task_def_arn=$NEW_TASK_DEF_ARN" >> $GITHUB_OUTPUT
+
+      # 단계 5.3: ECS 서비스 업데이트
+      # 목적: ECS 서비스가 새로 등록된 작업 정의 리비전을 사용하도록 업데이트하고 새 배포를 강제합니다.
+      - name: 5.3 Update ECS Service
+        env:
+          ECS_CLUSTER_NAME: YourClusterName # 실제 클러스터 이름
+          ECS_SERVICE_NAME: cherryrecorder-service # 실제 서비스 이름
+          # 이전 단계(register-task-def)의 출력값(새 작업 정의 ARN) 사용
+          NEW_TASK_DEF_ARN: ${{ steps.register-task-def.outputs.task_def_arn }}
+        run: |
+          echo "Updating service $ECS_SERVICE_NAME in cluster $ECS_CLUSTER_NAME to use $NEW_TASK_DEF_ARN"
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER_NAME \
+            --service $ECS_SERVICE_NAME \
+            --task-definition $NEW_TASK_DEF_ARN \
+            --force-new-deployment # 기존 작업을 중지하고 새 작업으로 교체 강제
+
+      # 단계 5.4: 배포 완료 대기 (선택 사항, 권장)
+      # 목적: ECS 서비스 배포가 안정화될 때까지 기다립니다.
+      - name: 5.4 Wait for deployment stabilization
+        env:
+          ECS_CLUSTER_NAME: YourClusterName
+          ECS_SERVICE_NAME: cherryrecorder-service
+        run: |
+          echo "Waiting for service $ECS_SERVICE_NAME to become stable..."
+          aws ecs wait services-stable --cluster $ECS_CLUSTER_NAME --services $ECS_SERVICE_NAME
+          echo "Service $ECS_SERVICE_NAME is stable."
+
+  # --- (Job 6: connection_check 는 변경 필요 없음 - 단, SERVER_ADDRESS/PORT Secret 값은 새 환경에 맞게 업데이트) ---
 
   # ==============================================================
   # Job 6: 배포된 서버 Telnet 확인 (Ubuntu 환경)
@@ -296,8 +379,20 @@ jobs:
     name: 6. Perform Connection Check to AWS Server
     runs-on: ubuntu-latest
     needs: deploy_aws # AWS 배포 성공 후 실행
-
+    # --- OIDC 권한 (만약 이 Job에서 AWS CLI를 사용한다면 필요) ---
+    # permissions:
+    #   id-token: write
+    #   contents: read
+    # ------------------------------------------------------
     steps:
+      # 만약 이 단계에서 서버 주소를 AWS CLI로 조회한다면 위 permissions 와 아래 configure-aws-credentials 필요
+      # - name: Configure AWS Credentials (if needed)
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      #     aws-region: ${{ secrets.AWS_REGION }}
+      #     role-session-name: GitHubActions-${{ github.run_id }}-${{ github.job }}
+
       # 단계 6.1: 연결 확인 도구 설치 (netcat 권장)
       - name: 6.1 Install netcat
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends netcat
