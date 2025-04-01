@@ -1,413 +1,341 @@
 # GitHub Actions 워크플로우 이름 정의
-name: CI - Multi-Job Linux
+name: CI/CD - CherryRecorder Server (Linux, Docker, ECS EC2 OIDC)
+
+# ==================================================
+# 필수 GitHub Secrets 목록
+# ==================================================
+# 이 워크플로우가 올바르게 작동하려면 아래 Secrets를 GitHub 저장소에 설정해야 합니다.
+# Settings > Secrets and variables > Actions > New repository secret
+#
+# AWS_REGION: 대상 AWS 리전 (예: ap-northeast-2)
+# AWS_ROLE_TO_ASSUME: GitHub Actions OIDC가 사용할 IAM 역할의 ARN
+# AWS_ECR_REPOSITORY: 이미지를 푸시할 ECR 리포지토리 이름 (예: cherryrecorder-server)
+# SERVER_ADDRESS: 배포된 서비스에 접근할 주소 (예: ALB의 DNS 이름)
+# SERVER_PORT: 배포된 서비스가 외부에서 리슨하는 포트 (예: ALB 리스너 포트 80 또는 443)
+# AWS_ACCOUNT_ID: (선택 사항) ECR 주소 자동 구성 등에 필요시 사용
+# DB_HOST, DB_PORT, DB_USER, DB_PASSWORD_SECRET_ARN 등: ECS Task Definition에서 사용할 환경 변수/비밀 값 (필요시 추가)
+# ==================================================
 
 # ==================================================
 # 워크플로우 실행 조건 (Triggers)
 # ==================================================
-# 어떤 이벤트가 발생했을 때 이 워크플로우를 실행할지 정의합니다.
 on:
-  # 1. 'main' 브랜치로 코드가 푸시(push)될 때 실행됩니다.
   push:
-    branches: [ main ]
-  # 2. 'main' 브랜치를 대상으로 하는 풀 리퀘스트(pull request)가 생성되거나 업데이트될 때 실행됩니다.
+    branches: [ main ] # main 브랜치 푸시 시 실행
   pull_request:
-    branches: [ main ]
+    branches: [ main ] # main 브랜치 대상 PR 시 실행
 
 # ==================================================
 # 워크플로우 작업 (Jobs)
 # ==================================================
-# 워크플로우는 하나 이상의 Job으로 구성되며, 각 Job은 독립적인 환경에서 실행됩니다.
-# 이 워크플로우는 3개의 Job으로 구성되어 순차적으로 실행됩니다: 빌드/테스트 -> 문서 생성 -> 배포
 jobs:
   # ==============================================================
   # Job 1: CMake 프로젝트 빌드 및 테스트 (Linux 환경)
   # ==============================================================
-  # 목적: 프로젝트 소스 코드를 컴파일하고 단위 테스트를 실행하여 코드의 기본적인 무결성을 검증합니다.
-  # 특징: vcpkg 의존성 관리, CMake 빌드 시스템 사용, Linux(Ubuntu) 환경에서 실행됩니다. (Docker 배포 환경과 일치)
-  cmake_build_test:
-    name: 1. CMake Build & Test (Linux)
-    # 실행 환경: Docker 이미지 및 최종 배포 환경과 일치시키기 위해 Ubuntu 최신 버전을 사용합니다.
-    runs-on: ubuntu-latest
+  # 목적: Linux 환경에서 C++ 코드를 빌드하고 단위 테스트를 실행하여 코드 무결성을 검증합니다.
+  #       후속 Docker 빌드 및 배포의 기반이 됩니다.
+  build_test: # Job 이름 변경 (더 명확하게)
+    name: 1. Build & Test (Linux)
+    runs-on: ubuntu-latest # 표준 Linux 환경 사용
 
-    # Job 단계 (Steps): Job 내에서 순차적으로 실행되는 명령어 또는 액션의 목록입니다.
     steps:
-      # --------------------------------------------------------------
-      # 단계 1.0: 필수 빌드 도구 설치 (Linux Runner)
-      # --------------------------------------------------------------
-      # 목적: Ubuntu Runner에 C++ 컴파일러(g++), CMake, Git 등 빌드 및 vcpkg에 필요한 도구들을 설치합니다.
-      # 참고: libmysqlclient-dev는 vcpkg가 mysql-connector-cpp를 빌드/링크할 때 필요할 수 있습니다.
-      - name: 1.0 Install build dependencies
+      # 단계 1.0: 빌드 의존성 설치
+      # C++ 컴파일러, CMake, Git, vcpkg 및 이후 Job에서 사용할 jq 등 필수 도구 설치
+      - name: 1.0 Install Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            cmake \
-            git \
-            curl \
-            zip \
-            unzip \
-            tar \
-            pkg-config \
-            ninja-build \
-            # libmysqlclient-dev # mysql-connector-cpp 링크 시 필요하면 주석 해제
+            build-essential cmake git curl zip unzip tar pkg-config ninja-build jq
+          # libmysqlclient-dev # vcpkg 빌드 로그 확인 후 필요 시 주석 해제
 
-      # --------------------------------------------------------------
-      # 단계 1.1: 소스 코드 체크아웃
-      # --------------------------------------------------------------
-      # 목적: Git 저장소의 최신 코드를 Runner로 내려받습니다.
+      # 단계 1.1: 소스 코드 체크아웃 (서브모듈 포함, 전체 히스토리)
       - name: 1.1 Check out source code repository
         uses: actions/checkout@v4
-        with:
-          submodules: true # vcpkg 서브모듈 포함
-          fetch-depth: 0   # vcpkg baseline 조회를 위해 전체 Git 히스토리 필요
+        with: { submodules: true, fetch-depth: 0 }
 
-      # --------------------------------------------------------------
-      # 단계 1.2 & 1.3: vcpkg 바이너리 캐싱 활성화 (GHA 연동)
-      # --------------------------------------------------------------
-      # 목적: vcpkg 빌드 시간 단축을 위해 GHA 캐시 연동 설정
-      - name: 1.2 Enable vcpkg GitHub Actions Cache Integration
+      # 단계 1.2 & 1.3: vcpkg 바이너리 캐싱 설정
+      - name: 1.2 Enable vcpkg GHA Cache Integration
         uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-      - name: 1.3 Configure vcpkg binary caching source via Env Var
+        with: { script: "core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');\ncore.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');" }
+      - name: 1.3 Configure vcpkg Binary Caching Env Var
         run: echo "VCPKG_BINARY_SOURCES=clear;x-gha,readwrite" >> $GITHUB_ENV
 
-      # --------------------------------------------------------------
-      # 단계 1.4: vcpkg 작업 디렉토리 캐싱 (다운로드, 빌드 중간 산출물)
-      # --------------------------------------------------------------
-      # 목적: vcpkg 소스 다운로드 및 빌드 중간 파일 캐싱
-      - name: 1.4 Cache vcpkg downloads and buildtrees directories
+      # 단계 1.4: vcpkg 작업 디렉토리 캐싱
+      - name: 1.4 Cache vcpkg Downloads & Buildtrees
         uses: actions/cache@v4
+        id: vcpkg-cache # 캐시 히트 여부 확인 위해 ID 부여 (선택 사항)
         with:
           path: |
             ${{ github.workspace }}/vcpkg/downloads
             ${{ github.workspace }}/vcpkg/buildtrees
-          # key의 runner.os 부분은 자동으로 'Linux'로 변경되어 적용됩니다.
           key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-
 
-      # --------------------------------------------------------------
-      # 단계 1.5: vcpkg 부트스트랩 (Linux 용)
-      # --------------------------------------------------------------
-      # 목적: Linux 환경용 vcpkg 실행 파일을 생성합니다.
-      - name: 1.5 Bootstrap vcpkg (Build vcpkg executable for Linux)
-        # Linux 환경에서는 bootstrap-vcpkg.sh 스크립트 사용
+      # 단계 1.5: vcpkg 부트스트랩
+      - name: 1.5 Bootstrap vcpkg (Linux)
+        # vcpkg 캐시가 복원되었더라도 실행하여 vcpkg 자체 업데이트 가능성 고려
         run: ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
-      # --------------------------------------------------------------
       # 단계 1.6: CMake 빌드 디렉토리 캐싱
-      # --------------------------------------------------------------
-      # 목적: CMake 빌드 디렉토리 캐싱 (Windows와 동일)
-      - name: 1.6 Cache CMake build directory
+      - name: 1.6 Cache CMake Build Directory
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/build
-          # key의 runner.os 부분은 자동으로 'Linux'로 변경되어 적용됩니다.
           key: build-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt', '**/vcpkg.json') }}
           restore-keys: |
             build-${{ runner.os }}-
 
-      # --------------------------------------------------------------
-      # 단계 1.7: CMake Configure (Linux 용)
-      # --------------------------------------------------------------
-      # 목적: Linux 환경에서 CMake를 구성하고 vcpkg 의존성을 해결합니다.
-      - name: 1.7 Configure CMake project (Linux)
-        # CMake 명령어 실행 (Linux 환경에 맞게 조정)
-        # -G Ninja: Ninja 빌드 시스템 사용 (CMakePresets.json과 일치, 일반적으로 빠름)
-        # -A x64 제거: Linux에서는 아키텍처를 이렇게 지정하지 않음 (툴체인이 처리)
-        # vcpkg 툴체인 경로 구분자 변경 (/)
-        # 줄 연속 불필요 (한 줄로 작성) 또는 Bash의 백슬래시(\) 사용
+      # 단계 1.7: CMake Configure (Release 모드, 테스트 포함)
+      - name: 1.7 Configure CMake Project (Linux, Release)
+        # CMakeLists.txt의 BUILD_TESTING 옵션 기본값이 ON이므로 여기선 설정 불필요
         run: >
           cmake -S . -B build
           -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
-          -DVCPKG_TARGET_TRIPLET=x64-linux # Linux용 vcpkg triplet 명시
+          -DVCPKG_TARGET_TRIPLET=x64-linux
 
-      # --------------------------------------------------------------
-      # 단계 1.8: CMake Build (Linux 용)
-      # --------------------------------------------------------------
-      # 목적: Linux 환경에서 프로젝트를 컴파일합니다.
+      # 단계 1.8: CMake Build (병렬 빌드)
       - name: 1.8 Build Project using CMake (Linux)
-        # --config Release 제거: Ninja 등 단일 구성 생성기에서는 필요 없음
-        # -j $(nproc): 사용 가능한 CPU 코어를 최대한 활용하여 병렬 빌드 수행 (속도 향상)
         run: cmake --build build -j $(nproc)
 
-      # --------------------------------------------------------------
-      # 단계 1.9: 테스트 실행 (Linux 용)
-      # --------------------------------------------------------------
-      # 목적: Linux 환경에서 빌드된 테스트를 실행합니다.
+      # 단계 1.9: CTest 실행
       - name: 1.9 Run tests via CTest (Linux)
-        # CTest 실행 (Linux 환경에 맞게 조정)
-        # -C Release 제거: 단일 구성 생성기에서는 필요 없음
         run: |
           cd build
-          ctest --output-on-failure
+          ctest --output-on-failure # 실패 시에만 로그 출력
           cd ..
 
   # ==============================================================
   # Job 2: Doxygen 문서 생성 (Linux 환경)
   # ==============================================================
-  # 목적: 프로젝트 소스 코드를 분석하여 Doxygen으로 API 문서를 생성하고, 배포를 위해 준비합니다.
-  # 의존성: 이 Job은 'cmake_build_test' Job이 성공해야만 시작됩니다.
   generate_docs:
     name: 2. Generate Documentation (Linux)
-    # 실행 환경: Doxygen 도구를 apt로 설치할 수 있는 Ubuntu 환경 사용
     runs-on: ubuntu-latest
-    needs: cmake_build_test # 이전 Job(빌드/테스트) 성공 시 실행
-
+    needs: build_test # 빌드/테스트 Job 성공 후 실행
     steps:
-      # --------------------------------------------------------------
-      # 단계 2.1: 소스 코드 체크아웃 (문서 생성을 위해)
-      # --------------------------------------------------------------
-      - name: 2.1 Check out source code for documentation
+      - name: 2.1 Check out source code
         uses: actions/checkout@v4
-        # 최적화 참고 (필요시 주석 해제)
-        # with:
-        #   fetch-depth: 1
-        #   submodules: false
-
-      # --------------------------------------------------------------
-      # 단계 2.2: Doxygen 설치 (Linux Runner)
-      # --------------------------------------------------------------
-      # 목적: Ubuntu Runner에 Doxygen 및 관련 도구(Graphviz) 설치
-      - name: 2.2 Install Doxygen tool
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends doxygen graphviz
-
-      # --------------------------------------------------------------
-      # 단계 2.3: Doxygen 문서 생성 실행
-      # --------------------------------------------------------------
-      - name: 2.3 Generate Documentation using Doxygen
+      - name: 2.2 Install Doxygen & Graphviz
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends doxygen graphviz
+      - name: 2.3 Generate Documentation
         run: doxygen ./docs/Doxyfile
-
-      # --------------------------------------------------------------
-      # 단계 2.4: GitHub Pages 배포용 아티팩트 업로드
-      # --------------------------------------------------------------
-      - name: 2.4 Upload artifact for Pages deployment
+      - name: 2.4 Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./docs/docs_output/html # 실제 Doxygen 출력 경로 확인 필요
+          # 경로 주의: Doxyfile의 OUTPUT_DIRECTORY 설정과 일치해야 함!
+          path: ./docs/docs_output/html
 
   # ==============================================================
   # Job 3: GitHub Pages 배포 (Ubuntu 환경)
   # ==============================================================
-  # 목적: 'generate_docs' Job에서 생성한 문서를 GitHub Pages 사이트로 게시(배포)합니다.
-  # 의존성: 이 Job은 'generate_docs' Job이 성공해야만 시작됩니다.
   deploy_pages:
     name: 3. Deploy Documentation to GitHub Pages
     runs-on: ubuntu-latest
-    needs: generate_docs
-    permissions:
-      pages: write
-      id-token: write
-    environment:
+    needs: generate_docs # 문서 생성 Job 성공 후 실행
+    permissions: { pages: write, id-token: write } # Pages 배포 권한
+    environment: 
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url }} # 배포 환경 지정
     steps:
       - name: 3.1 Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
 
   # ==============================================================
-  # Job 4: Docker 이미지 빌드 및 AWS ECR 푸시 (Ubuntu 환경)
+  # Job 4: Docker 이미지 빌드 및 AWS ECR 푸시 (Ubuntu + OIDC)
   # ==============================================================
   docker_build_push:
-    name: 4. Build and Push Docker Image to AWS ECR
+    name: 4. Build and Push Docker Image (AWS ECR OIDC)
     runs-on: ubuntu-latest
-    needs: cmake_build_test # Linux 빌드/테스트 성공 후 실행
-    # --- OIDC를 위한 권한 추가 ---
-    permissions:
-      id-token: write # OIDC ID 토큰을 요청할 수 있는 권한 (필수)
-      contents: read  # 코드를 체크아웃하기 위한 권한 (대부분 필요)
-    steps:
-      # 단계 4.1: 소스 코드 체크아웃
-      - name: 4.1 Check out source code repository
-        uses: actions/checkout@v4
-        # with: { fetch-depth: 1 } # 전체 히스토리 불필요 시
+    needs: build_test # 빌드/테스트 Job 성공 후 실행
+    permissions: { id-token: write, contents: read } # OIDC 토큰 요청 및 코드 읽기 권한
 
-      # 단계 4.2: AWS 자격 증명 설정 (OIDC 사용하도록 수정)
-      - name: 4.2 Configure AWS Credentials using OIDC
+    # Job 레벨 출력값 정의: 다음 Job에서 사용하기 위해
+    outputs:
+      ecr_registry: ${{ steps.login-ecr.outputs.registry }}
+      image_tag: ${{ steps.tag-image.outputs.tag }}
+
+    steps:
+      - name: 4.1 Check out source code
+        uses: actions/checkout@v4
+
+      # AWS OIDC 인증 설정
+      - name: 4.2 Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          # aws-access-key-id 와 aws-secret-access-key 는 제거합니다!
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }} # 맡을 IAM 역할 ARN (Secret 사용)
-          aws-region: ${{ secrets.AWS_REGION }}             # AWS 리전
-          # role-session-name: 역할 세션 이름 지정 (선택 사항, CloudTrail 로그 추적에 유용)
-          role-session-name: GitHubActions-ECR-${{ github.run_id }}-${{ github.job }}
-          # (OIDC 사용 시 설정 변경)
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }} # Secret 필수
+          aws-region: ${{ secrets.AWS_REGION }}             # Secret 필수
+          role-session-name: GitHubActions-ECR-${{ github.run_id }}
 
-      # 단계 4.3: AWS ECR 로그인
+      # ECR 로그인
       - name: 4.3 Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # 단계 4.4: Docker 이미지 빌드 및 태그 지정
-      - name: 4.4 Build and tag Docker image
-        id: build-image
+      # 이미지 태그 설정 (GitHub SHA 사용) 및 출력 변수 설정
+      - name: 4.4 Set Image Tag
+        id: tag-image
+        run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      # Docker 이미지 빌드 및 태그 지정
+      - name: 4.5 Build and tag Docker image
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }} # ECR 레지스트리 주소 (login-ecr 스텝 출력값 사용)
-          ECR_REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }} # Secret 변수 사용
-          IMAGE_TAG: ${{ github.sha }}  # 이미지 태그: 현재 커밋의 SHA 사용 (고유성 및 추적 용이성)
-          DOCKER_BUILDKIT: 1    # Docker BuildKit 사용 명시 (성능 및 캐싱 향상)
-        # Dockerfile 사용하여 빌드, ECR 주소 및 commit SHA, latest로 태그 지정
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }} # Secret 필수
+          IMAGE_TAG: ${{ steps.tag-image.outputs.tag }}
+          DOCKER_BUILDKIT: 1 # BuildKit 사용
+        # 로컬에서 테스트 완료된 Dockerfile 사용
         run: docker build . --tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --tag $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-      # 단계 4.5: Docker 이미지 푸시
-      - name: 4.5 Push Docker image to Amazon ECR
+      # (선택 사항) 이미지 취약점 스캔
+      # - name: 4.6 Scan image for vulnerabilities...
+
+      # Docker 이미지 ECR로 푸시
+      - name: 4.7 Push Docker image to Amazon ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }}
-          IMAGE_TAG: ${{ github.sha }}
-        # 두 개의 태그(commit-sha, latest)를 모두 푸시합니다.
+          IMAGE_TAG: ${{ steps.tag-image.outputs.tag }}
         run: |
-          echo "Pushing image with tag $IMAGE_TAG..."
+          echo "Pushing image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "Pushing image with tag latest..."
+          echo "Pushing image: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-      # 단계 4.6 (선택 사항): 이미지 취약점 스캔
-      # 푸시된 이미지에 대해 보안 취약점 스캔을 수행할 수 있습니다 (예: Trivy 사용).
-      # - name: 4.6 Scan image for vulnerabilities (Optional using Trivy)
-      #   uses: aquasecurity/trivy-action@master
-      #   with:
-      #     image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ secrets.AWS_ECR_REPOSITORY }}:${{ github.sha }}'
-      #     format: 'table'
-      #     exit-code: '1' # 높은 심각도(HIGH, CRITICAL) 취약점 발견 시 워크플로우 실패 처리
-      #     ignore-unfixed: true
-      #     vuln-type: 'os,library'
-      #     severity: 'CRITICAL,HIGH'
-
   # ==============================================================
-  # Job 5: AWS에 애플리케이션 배포 (EC2 유형 - Ubuntu + OIDC)
+  # Job 5: AWS ECS에 애플리케이션 배포 (EC2 유형 - Ubuntu + OIDC)
   # ==============================================================
-  # 목적: ECR에 푸시된 최신 Docker 이미지를 사용하여 ECS EC2 클러스터에 배포(업데이트)합니다.
+  # 목적: ECR에 푸시된 최신 이미지를 사용하여 ECS EC2 클러스터에 배포(서비스 업데이트)합니다.
+  # 방식: Task Definition 템플릿 파일 사용 (jq 방식보다 권장)
   deploy_aws:
-    name: 5. Deploy Application to AWS (EC2 Type - OIDC)
+    name: 5. Deploy to AWS ECS (EC2 Type - OIDC)
     runs-on: ubuntu-latest
     needs: docker_build_push # Docker 이미지 푸시 성공 후 실행
-
-    permissions:
-      id-token: write # AWS OIDC 인증에 필수
-      contents: read
+    permissions: { id-token: write, contents: read } # OIDC 권한 및 코드 읽기(템플릿 파일)
 
     steps:
-      # 단계 5.1: AWS 자격 증명 설정 (OIDC 사용)
-      - name: 5.1 Configure AWS Credentials using OIDC
+      - name: 5.1 Check out source code (for template file)
+        uses: actions/checkout@v4
+
+      # AWS OIDC 인증 설정
+      - name: 5.2 Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }} # Secret 필수
+          aws-region: ${{ secrets.AWS_REGION }}             # Secret 필수
           role-session-name: GitHubActions-Deploy-${{ github.run_id }}
 
-      # 단계 5.2: 새 작업 정의 생성 또는 업데이트
-      # 목적: ECR에 푸시된 최신 이미지 태그를 사용하도록 작업 정의를 업데이트합니다.
-      # 방법: 기존 작업 정의를 가져와 image 부분만 변경하고 새 리비전으로 등록합니다.
-      - name: 5.2 Register New Task Definition Revision
-        id: register-task-def
+      # 단계 5.3: Task Definition 파일 생성 (템플릿 사용)
+      # .github/task-definition.json.template 파일을 기반으로 실제 이미지 태그를 적용한 새 정의 파일 생성
+      - name: 5.3 Create Task Definition file from template
+        id: task-def
         env:
-          # Job 4의 출력을 사용하거나 Secrets/변수 사용 (login-ecr 스텝이 Job 4에 있다고 가정)
-          # ECR_REGISTRY: ${{ needs.docker_build_push.outputs.registry }} # Job 출력 사용 예시 (Job 4에 outputs 설정 필요)
-          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }} # 계정 ID Secret 필요 시
-          ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com # 직접 구성 예시
-          ECR_REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }}
-          IMAGE_TAG: ${{ github.sha }}
-          TASK_DEFINITION_FAMILY: cherryrecorder-task-def # 실제 작업 정의 패밀리 이름
-          CONTAINER_NAME: cherryrecorder-server-container # 작업 정의 내 컨테이너 이름
+          # 이전 Job(docker_build_push)의 출력값 사용
+          ECR_REGISTRY: ${{ needs.docker_build_push.outputs.ecr_registry }}
+          ECR_REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }} # Secret 필수
+          IMAGE_TAG: ${{ needs.docker_build_push.outputs.image_tag }}
+          # ECS Task Definition에 필요한 환경 변수들을 여기에 추가 (Secrets 사용 권장)
+          # 예: DB 관련 정보 (Secrets Manager ARN 참조 등)
+          # DB_HOST: ${{ secrets.DB_HOST }}
+          # DB_USER: ${{ secrets.DB_USER }}
+          # DB_PASSWORD_SECRET_ARN: ${{ secrets.DB_PASSWORD_SECRET_ARN }}
+          SERVER_PORT_VALUE: ${{ secrets.SERVER_PORT }} # 포트 번호 설정
+          # --- 아래는 Task Definition 템플릿 파일 내 플레이스홀더와 맞춰야 함 ---
+          TASK_DEFINITION_FAMILY: cherryrecorder-task-def # 실제 Task Def 패밀리 이름
+          CONTAINER_NAME: cherryrecorder-server-container # 컨테이너 이름
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }} # 필요 시 사용
+          # TASK_EXECUTION_ROLE_ARN: ${{ secrets.TASK_EXECUTION_ROLE_ARN }} # 필요 시 Secret 설정
+          # TASK_ROLE_ARN: ${{ secrets.TASK_ROLE_ARN }} # 필요 시 Secret 설정
         run: |
-          echo "Fetching current task definition..."
-          # 기존 작업 정의 내용 가져오기 (jq 필요: sudo apt-get install jq)
-          TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition $TASK_DEFINITION_FAMILY --query 'taskDefinition' --output json)
+          set -e # 명령어 실패 시 즉시 중단
+          echo "Generating task definition file..."
+          # envsubst 명령어 사용 (gettext 패키지 필요)
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends gettext-base
+          # 템플릿 파일 경로 확인 필요! (예: .github/task-definition.json.template)
+          envsubst < .github/task-definition.json.template > task-definition.json
+          echo "Generated task-definition.json:"
+          cat task-definition.json # 생성된 내용 확인 (디버깅용)
+          # 생성된 파일 경로를 출력으로 설정
+          echo "task_def_path=task-definition.json" >> $GITHUB_OUTPUT
 
-          echo "Updating image tag..."
-          # 이미지 정보만 새 태그로 변경 (jq 사용 예시)
-          NEW_IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE_URI "$NEW_IMAGE_URI" --arg CONTAINER_NAME "$CONTAINER_NAME" '
-            # family, taskRoleArn 등 주요 필드만 선택하고, containerDefinitions 수정
-            {family: .family, taskRoleArn: .taskRoleArn, executionRoleArn: .executionRoleArn, networkMode: .networkMode, requiresCompatibilities: .requiresCompatibilities, cpu: .cpu, memory: .memory, containerDefinitions: [
-              .containerDefinitions[] | if .name == $CONTAINER_NAME then .image = $IMAGE_URI else . end
-            ] }
-          ')
-          # 위 jq 명령어는 예시이며, 실제 작업 정의 구조에 맞게 필드를 선택/수정해야 함
-
+      # 단계 5.4: 새 Task Definition 리비전 등록
+      - name: 5.4 Register New Task Definition Revision
+        id: register-task-def
+        run: |
+          set -e
           echo "Registering new task definition revision..."
-          # 수정된 내용으로 새 리비전 등록
-          NEW_TASK_INFO=$(aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEFINITION")
-          # 등록된 새 작업 정의 ARN을 출력으로 설정
+          # 이전 단계에서 생성된 task-definition.json 파일 사용
+          NEW_TASK_INFO=$(aws ecs register-task-definition --cli-input-json file://${{ steps.task-def.outputs.task_def_path }})
+          # 새 작업 정의 ARN 파싱 및 출력 설정 (jq 사용)
           NEW_TASK_DEF_ARN=$(echo $NEW_TASK_INFO | jq -r .taskDefinition.taskDefinitionArn)
           echo "New Task Definition ARN: $NEW_TASK_DEF_ARN"
           echo "task_def_arn=$NEW_TASK_DEF_ARN" >> $GITHUB_OUTPUT
 
-      # 단계 5.3: ECS 서비스 업데이트
-      # 목적: ECS 서비스가 새로 등록된 작업 정의 리비전을 사용하도록 업데이트하고 새 배포를 강제합니다.
-      - name: 5.3 Update ECS Service
+      # 단계 5.5: ECS 서비스 업데이트
+      - name: 5.5 Update ECS Service
         env:
-          ECS_CLUSTER_NAME: YourClusterName # 실제 클러스터 이름
-          ECS_SERVICE_NAME: cherryrecorder-service # 실제 서비스 이름
-          # 이전 단계(register-task-def)의 출력값(새 작업 정의 ARN) 사용
+          ECS_CLUSTER_NAME: ${{ secrets.AWS_ECS_CLUSTER_NAME }} # 실제 클러스터 이름
+          ECS_SERVICE_NAME: ${{ secrets.AWS_ECS_SERVICE_NAME }} # 실제 서비스 이름
           NEW_TASK_DEF_ARN: ${{ steps.register-task-def.outputs.task_def_arn }}
         run: |
+          set -e
           echo "Updating service $ECS_SERVICE_NAME in cluster $ECS_CLUSTER_NAME to use $NEW_TASK_DEF_ARN"
           aws ecs update-service \
             --cluster $ECS_CLUSTER_NAME \
             --service $ECS_SERVICE_NAME \
             --task-definition $NEW_TASK_DEF_ARN \
-            --force-new-deployment # 기존 작업을 중지하고 새 작업으로 교체 강제
+            --force-new-deployment # 새 배포 강제 시작
 
-      # 단계 5.4: 배포 완료 대기 (선택 사항, 권장)
-      # 목적: ECS 서비스 배포가 안정화될 때까지 기다립니다.
-      - name: 5.4 Wait for deployment stabilization
+      # 단계 5.6: 배포 완료 대기
+      - name: 5.6 Wait for deployment stabilization
         env:
-          ECS_CLUSTER_NAME: YourClusterName
-          ECS_SERVICE_NAME: cherryrecorder-service
+          ECS_CLUSTER_NAME: ${{ secrets.AWS_ECS_CLUSTER_NAME }}
+          ECS_SERVICE_NAME: ${{ secrets.AWS_ECS_SERVICE_NAME }}
         run: |
+          set -e
           echo "Waiting for service $ECS_SERVICE_NAME to become stable..."
+          # 타임아웃 기본값은 길 수 있으므로 적절히 조정 고려 (--cli-read-timeout, --cli-connect-timeout)
           aws ecs wait services-stable --cluster $ECS_CLUSTER_NAME --services $ECS_SERVICE_NAME
           echo "Service $ECS_SERVICE_NAME is stable."
 
-  # --- (Job 6: connection_check 는 변경 필요 없음 - 단, SERVER_ADDRESS/PORT Secret 값은 새 환경에 맞게 업데이트) ---
-
   # ==============================================================
-  # Job 6: 배포된 서버 Telnet 확인 (Ubuntu 환경)
+  # Job 6: 배포된 서버 연결 확인 (Ubuntu 환경)
   # ==============================================================
-  # 목적: AWS에 배포된 애플리케이션 서버 포트로 연결을 시도하여 응답 여부를 확인합니다.
-  telnet_check:
-    name: 6. Perform Connection Check to AWS Server
+  connection_check:
+    name: 6. Connection Check to Deployed Server
     runs-on: ubuntu-latest
-    needs: deploy_aws # AWS 배포 성공 후 실행
-    # --- OIDC 권한 (만약 이 Job에서 AWS CLI를 사용한다면 필요) ---
-    # permissions:
-    #   id-token: write
-    #   contents: read
-    # ------------------------------------------------------
+    needs: deploy_aws # AWS 배포 Job 성공 후 실행
+    # permissions: { id-token: write, contents: read } # AWS CLI로 서버 주소 조회 시 필요할 수 있음
+
     steps:
-      # 만약 이 단계에서 서버 주소를 AWS CLI로 조회한다면 위 permissions 와 아래 configure-aws-credentials 필요
-      # - name: Configure AWS Credentials (if needed)
-      #   uses: aws-actions/configure-aws-credentials@v4
-      #   with:
-      #     role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-      #     aws-region: ${{ secrets.AWS_REGION }}
-      #     role-session-name: GitHubActions-${{ github.run_id }}-${{ github.job }}
-
-      # 단계 6.1: 연결 확인 도구 설치 (netcat 권장)
       - name: 6.1 Install netcat
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends netcat
+        # update 추가하여 패키지 목록 갱신 후 설치
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends netcat-openbsd
 
-      # 단계 6.2: 연결 시도 (Telnet 대신 nc 사용)
       - name: 6.2 Attempt connection using netcat
         env:
-          SERVER_ADDRESS: ${{ secrets.SERVER_ADDRESS }} # Secret 변수 사용
-          SERVER_PORT: ${{ secrets.SERVER_PORT }}       # Secret 변수 사용
-        # nc 명령어로 지정된 주소/포트에 연결 시도 (-z: 스캔, -v: 상세, -w 5: 타임아웃 5초)
+          # SERVER_ADDRESS: ALB DNS 이름 또는 EC2 Public IP (Secrets에서 가져옴)
+          SERVER_ADDRESS: ${{ secrets.SERVER_ADDRESS }} # Secret 필수
+          # SERVER_PORT: ALB 리스너 포트 또는 EC2 호스트 포트 (Secrets에서 가져옴)
+          SERVER_PORT: ${{ secrets.SERVER_PORT }}       # Secret 필수
+        # nc 명령어로 5초 타임아웃, 최대 5번 재시도 (10초 간격)
         run: |
           echo "Attempting to connect to $SERVER_ADDRESS on port $SERVER_PORT..."
-          if nc -z -v -w 5 $SERVER_ADDRESS $SERVER_PORT; then
-            echo "Connection successful!"
-          else
-            echo "Connection failed!"
-            exit 1 # 연결 실패 시 워크플로우 실패 처리
-          fi
+          for i in {1..5}; do
+            # nc 명령어 옵션: -z(스캔), -v(상세), -w 5(타임아웃)
+            if nc -z -v -w 5 $SERVER_ADDRESS $SERVER_PORT; then
+              echo "Connection successful!"
+              exit 0 # 성공 시 종료
+            fi
+            # 마지막 시도가 아니면 재시도 메시지 출력 및 대기
+            if [ $i -lt 5 ]; then
+              echo "Connection attempt $i failed. Retrying in 10 seconds..."
+              sleep 10
+            fi
+          done
+          # 최종 실패 시 메시지 출력 및 워크플로우 실패 처리
+          echo "Connection failed after multiple attempts!"
+          exit 1
