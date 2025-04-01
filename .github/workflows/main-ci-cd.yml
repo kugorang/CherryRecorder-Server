@@ -96,7 +96,7 @@ jobs:
       image_name_ecr: ${{ needs.call_docker_build.outputs.image_name_ecr }}
       image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
       image_tag_latest: ${{ needs.call_docker_build.outputs.image_tag_latest }}
-      aws_region: ${{ secrets.AWS_REGION }}
+      aws_region: ${{ vars.AWS_REGION }}
     # 재사용 워크플로우에 필요한 시크릿 전달
     secrets:
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
@@ -117,8 +117,8 @@ jobs:
       image_name_ecr: ${{ needs.call_docker_build.outputs.image_name_ecr }}
       image_tag: ${{ needs.call_docker_build.outputs.image_tag_sha }} # 배포 시 고유 태그 사용
       # AWS 및 ECS 정보 (Secrets 또는 직접 값 사용)
-      aws_region: ${{ secrets.AWS_REGION }}
-      ecs_cluster_name: YourClusterName # 실제 클러스터 이름 (Secret 권장: secrets.ECS_CLUSTER_NAME)
+      aws_region: ${{ vars.AWS_REGION }}
+      ecs_cluster_name: CherryRecorderCluster # 실제 클러스터 이름 (Secret 권장: secrets.ECS_CLUSTER_NAME)
       ecs_service_name: cherryrecorder-service # 실제 서비스 이름 (Secret 권장: secrets.ECS_SERVICE_NAME)
       ecs_task_def_family: cherryrecorder-task-def # 실제 작업 정의 패밀리 (Secret 권장: secrets.ECS_TASK_DEF_FAMILY)
       container_name: cherryrecorder-server-container # 실제 컨테이너 이름 (Secret 권장: secrets.CONTAINER_NAME)
