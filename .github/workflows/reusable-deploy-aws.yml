@@ -1,0 +1,127 @@
+# .github/workflows/reusable-deploy-aws.yml
+name: Reusable - Deploy to AWS ECS (EC2 Type)
+
+on:
+  workflow_call:
+    inputs:
+      image_name_ecr:
+        description: 'Full image name for ECR (without tags)'
+        required: true
+        type: string
+      image_tag:
+        description: 'Image tag to deploy (usually Git SHA)'
+        required: true
+        type: string
+      aws_region:
+        description: 'AWS region for ECS'
+        required: true
+        type: string
+      ecs_cluster_name:
+        description: 'Name of the ECS cluster'
+        required: true
+        type: string
+      ecs_service_name:
+        description: 'Name of the ECS service to update'
+        required: true
+        type: string
+      ecs_task_def_family:
+        description: 'Family name of the ECS Task Definition'
+        required: true
+        type: string
+      container_name:
+        description: 'Name of the container within the Task Definition'
+        required: true
+        type: string
+      task_definition_template_path:
+        description: 'Path to the Task Definition template file'
+        required: true
+        type: string
+    secrets:
+      aws_role_to_assume:
+        description: 'IAM Role ARN for OIDC'
+        required: true
+      # Task Definition 템플릿에 필요한 다른 Secret들도 여기에 정의 가능
+      # 예: DB_PASSWORD_SECRET_ARN: { required: false }
+
+jobs:
+  deploy_job:
+    name: Deploy to AWS ECS
+    runs-on: ubuntu-latest
+    # OIDC 및 코드(템플릿) 읽기 권한
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Check out source code (for template file)
+        uses: actions/checkout@v4
+
+      # AWS OIDC 인증 설정
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.aws_role_to_assume }}
+          aws-region: ${{ inputs.aws_region }}
+          role-session-name: GitHubActions-Deploy-${{ github.run_id }}
+
+      # Task Definition 파일 생성 (템플릿 사용)
+      - name: Create Task Definition file from template
+        id: task-def
+        env:
+          # 입력값 및 Secret을 환경 변수로 설정하여 envsubst에서 사용
+          IMAGE_URI: ${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}
+          CONTAINER_NAME: ${{ inputs.container_name }}
+          TASK_DEFINITION_FAMILY: ${{ inputs.ecs_task_def_family }}
+          AWS_REGION: ${{ inputs.aws_region }}
+          # 템플릿에 필요한 다른 변수들 설정 (Secrets 포함)
+          # SERVER_PORT_VALUE: ${{ secrets.SERVER_PORT_VALUE || '8080' }}
+          # DB_PASSWORD_SECRET_ARN: ${{ secrets.DB_PASSWORD_SECRET_ARN }}
+        run: |
+          set -e
+          echo "Generating task definition file from template: ${{ inputs.task_definition_template_path }}"
+          # gettext-base 패키지 설치 (envsubst 명령어 포함)
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends gettext-base
+          # 템플릿 파일 읽어 환경 변수로 치환 후 새 파일 생성
+          envsubst < "${{ inputs.task_definition_template_path }}" > task-definition.json
+          echo "Generated task-definition.json:"
+          cat task-definition.json # 디버깅용 출력
+          echo "task_def_path=task-definition.json" >> $GITHUB_OUTPUT
+
+      # 새 Task Definition 리비전 등록
+      - name: Register New Task Definition Revision
+        id: register-task-def
+        run: |
+          set -e
+          echo "Registering new task definition revision..."
+          # 이전 단계에서 생성된 파일 사용
+          NEW_TASK_INFO=$(aws ecs register-task-definition --cli-input-json file://${{ steps.task-def.outputs.task_def_path }})
+          # 새 작업 정의 ARN 파싱 및 출력 설정 (jq 필요 - build_test Job에서 설치 가정)
+          NEW_TASK_DEF_ARN=$(echo $NEW_TASK_INFO | jq -r .taskDefinition.taskDefinitionArn)
+          echo "New Task Definition ARN: $NEW_TASK_DEF_ARN"
+          echo "task_def_arn=$NEW_TASK_DEF_ARN" >> $GITHUB_OUTPUT
+
+      # ECS 서비스 업데이트
+      - name: Update ECS Service
+        env:
+          ECS_CLUSTER_NAME: ${{ inputs.ecs_cluster_name }}
+          ECS_SERVICE_NAME: ${{ inputs.ecs_service_name }}
+          NEW_TASK_DEF_ARN: ${{ steps.register-task-def.outputs.task_def_arn }}
+        run: |
+          set -e
+          echo "Updating service $ECS_SERVICE_NAME in cluster $ECS_CLUSTER_NAME..."
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER_NAME \
+            --service $ECS_SERVICE_NAME \
+            --task-definition $NEW_TASK_DEF_ARN \
+            --force-new-deployment
+
+      # 배포 완료 대기
+      - name: Wait for deployment stabilization
+        env:
+          ECS_CLUSTER_NAME: ${{ inputs.ecs_cluster_name }}
+          ECS_SERVICE_NAME: ${{ inputs.ecs_service_name }}
+        run: |
+          set -e
+          echo "Waiting for service $ECS_SERVICE_NAME to become stable..."
+          aws ecs wait services-stable --cluster $ECS_CLUSTER_NAME --services $ECS_SERVICE_NAME
+          echo "Service $ECS_SERVICE_NAME is stable."

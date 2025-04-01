@@ -1,0 +1,45 @@
+# .github/workflows/reusable-connection-check.yml
+name: Reusable - Connection Check
+
+on:
+  workflow_call:
+    inputs:
+      server_address:
+        description: 'Address (ALB DNS or IP) of the deployed server'
+        required: true
+        type: string
+      server_port:
+        description: 'Port number of the deployed server'
+        required: true
+        type: string
+    # secrets는 직접 전달받지 않고, 호출하는 쪽(main-ci-cd.yml)에서 input으로 변환하여 전달
+    # 또는 여기서 직접 OIDC로 자격 증명 얻어 AWS CLI로 주소 조회 등 가능
+
+jobs:
+  check_job:
+    name: Check Connection to Server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install netcat
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends netcat-openbsd
+
+      - name: Attempt connection using netcat
+        env:
+          SERVER_ADDRESS: ${{ inputs.server_address }}
+          SERVER_PORT: ${{ inputs.server_port }}
+        # 재시도 로직 포함
+        run: |
+          set -e # 중간 실패 시 즉시 종료를 위해 추가 (단, 루프 내에서는 exit 0으로 성공 처리 필요)
+          echo "Attempting to connect to $SERVER_ADDRESS on port $SERVER_PORT..."
+          for i in {1..5}; do
+            if nc -z -v -w 5 $SERVER_ADDRESS $SERVER_PORT; then
+              echo "Connection successful!"
+              exit 0 # 성공 시 스크립트/Job 성공 종료
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Connection attempt $i failed. Retrying in 10 seconds..."
+              sleep 10
+            fi
+          done
+          echo "Connection failed after multiple attempts!"
+          exit 1 # 최종 실패 시 스크립트/Job 실패 종료

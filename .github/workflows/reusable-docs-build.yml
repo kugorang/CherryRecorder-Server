@@ -1,0 +1,22 @@
+# .github/workflows/reusable-docs-build.yml
+name: Reusable - Generate Documentation
+
+on:
+  workflow_call:
+
+jobs:
+  docs_job:
+    name: Generate and Upload Doxygen Docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@v4
+      - name: Install Doxygen & Graphviz
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends doxygen graphviz
+      - name: Generate Documentation
+        run: doxygen ./docs/Doxyfile
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # 경로 주의: Doxyfile의 OUTPUT_DIRECTORY 설정과 일치해야 함!
+          path: ./docs/docs_output/html

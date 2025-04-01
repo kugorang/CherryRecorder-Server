@@ -1,59 +1,50 @@
 {
-    "family": "${TASK_DEFINITION_FAMILY}",
-    "taskRoleArn": "${TASK_ROLE_ARN}", // IAM 역할 ARN (선택 사항, Secret 또는 직접 입력)
-    "executionRoleArn": "${TASK_EXECUTION_ROLE_ARN}", // ECS Task Execution Role ARN (Secret 또는 직접 입력)
-    "networkMode": "bridge", // 또는 host, awsvpc
-    "requiresCompatibilities": [
-        "EC2"
-    ],
-    "cpu": "256", // 예시 값 (문자열)
-    "memory": "512", // 예시 값 (문자열)
-    "containerDefinitions": [
+  "family": "${TASK_DEFINITION_FAMILY}",
+  "taskRoleArn": "${TASK_ROLE_ARN}",
+  "executionRoleArn": "${TASK_EXECUTION_ROLE_ARN}",
+  "networkMode": "bridge",
+  "requiresCompatibilities": [ "EC2" ],
+  "cpu": "256",
+  "memory": "512",
+  "containerDefinitions": [
+    {
+      "name": "${CONTAINER_NAME}",
+      "image": "${IMAGE_URI}",
+      "cpu": 256,
+      "memory": 512,
+      "essential": true,
+      "portMappings": [
         {
-            "name": "${CONTAINER_NAME}",
-            "image": "${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}", // <--- 여기가 치환될 핵심 부분
-            "cpu": 256, // 예시 값 (숫자)
-            "memory": 512, // 예시 값 (숫자)
-            "essential": true,
-            "portMappings": [
-                {
-                    "containerPort": ${SERVER_PORT_VALUE}, // 환경 변수에서 받은 포트 사용
-                    "hostPort": 0, // 동적 포트 매핑
-                    "protocol": "tcp"
-                }
-            ],
-            "environment": [
-                {
-                    "name": "SERVER_PORT", // 애플리케이션이 읽을 환경 변수
-                    "value": "${SERVER_PORT_VALUE}" // 위에서 설정한 값 사용
-                },
-                {
-                    "name": "DB_HOST",
-                    "value": "${DB_HOST}" // Job env 또는 Secret 에서 전달받음
-                },
-                {
-                    "name": "DB_USER",
-                    "value": "${DB_USER}"
-                }
-                // 필요시 다른 환경 변수 추가
-            ],
-            "secrets": [
-                 // 예시: Secrets Manager 연동 (DB_PASSWORD_SECRET_ARN 필요)
-                 // {
-                 //     "name": "DB_PASSWORD", // 애플리케이션이 읽을 환경 변수 이름
-                 //     "valueFrom": "${DB_PASSWORD_SECRET_ARN}" // Secrets Manager ARN 참조
-                 // }
-            ],
-            "logConfiguration": { // 예시: CloudWatch Logs 설정
-                "logDriver": "awslogs",
-                "options": {
-                    "awslogs-group": "/ecs/${TASK_DEFINITION_FAMILY}",
-                    "awslogs-region": "${AWS_REGION}",
-                    "awslogs-stream-prefix": "ecs"
-                }
-            }
-            // ... 기타 필요한 컨테이너 설정 (healthCheck, command 등)
+          "containerPort": "$",
+          { "SERVER_PORT_VALUE" },
+          "hostPort": 0,
+          "protocol": "tcp"
         }
-    ]
-    // ... 기타 필요한 작업 정의 설정 (volumes, placementConstraints 등)
+      ],
+      "environment": [
+        {
+          "name": "SERVER_PORT",
+          "value": "${SERVER_PORT_VALUE}"
+        },
+        {
+          "name": "DB_HOST",
+          "value": "${DB_HOST}"
+        },
+        {
+          "name": "DB_USER",
+          "value": "${DB_USER}"
+        }
+      ],
+      "secrets": [
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/${TASK_DEFINITION_FAMILY}",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
 }

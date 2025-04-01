@@ -1,0 +1,60 @@
+# .github/workflows/reusable-docker-push-ecr.yml
+name: Reusable - Push Docker Image to ECR
+
+on:
+  workflow_call:
+    inputs:
+      image_name_ecr:
+        description: 'Full image name for ECR (without tags)'
+        required: true
+        type: string
+      image_tag_sha:
+        description: 'Image tag based on Git SHA'
+        required: true
+        type: string
+      image_tag_latest:
+        description: 'Image tag "latest"'
+        required: true
+        type: string
+      aws_region:
+        description: 'AWS region for ECR'
+        required: true
+        type: string
+    secrets:
+      aws_role_to_assume:
+        description: 'IAM Role ARN for OIDC'
+        required: true
+
+jobs:
+  push_ecr_job:
+    name: Push Image to AWS ECR
+    runs-on: ubuntu-latest
+    # OIDC 토큰 요청 권한 필요
+    permissions:
+      id-token: write
+
+    steps:
+      # AWS OIDC 인증 설정
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.aws_role_to_assume }}
+          aws-region: ${{ inputs.aws_region }}
+          role-session-name: GitHubActions-ECR-Push-${{ github.run_id }}
+
+      # ECR 로그인
+      - name: Log in to Amazon ECR
+        id: login-ecr # registry 주소 필요 시 사용
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Docker 이미지 ECR로 푸시
+      - name: Push Docker image to Amazon ECR
+        env:
+          ECR_IMAGE_NAME: ${{ inputs.image_name_ecr }}
+          IMAGE_TAG_SHA: ${{ inputs.image_tag_sha }}
+          IMAGE_TAG_LATEST: ${{ inputs.image_tag_latest }}
+        run: |
+          echo "Pushing image: $ECR_IMAGE_NAME:$IMAGE_TAG_SHA"
+          docker push $ECR_IMAGE_NAME:$IMAGE_TAG_SHA
+          echo "Pushing image: $ECR_IMAGE_NAME:$IMAGE_TAG_LATEST"
+          docker push $ECR_IMAGE_NAME:$IMAGE_TAG_LATEST

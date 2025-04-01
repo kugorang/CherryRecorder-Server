@@ -1,0 +1,50 @@
+# .github/workflows/reusable-docker-push-dh.yml
+name: Reusable - Push Docker Image to Docker Hub
+
+on:
+  workflow_call:
+    inputs:
+      image_name_dh:
+        description: 'Full image name for Docker Hub (without tags)'
+        required: true
+        type: string
+      image_tag_sha:
+        description: 'Image tag based on Git SHA'
+        required: true
+        type: string
+      image_tag_latest:
+        description: 'Image tag "latest"'
+        required: true
+        type: string
+    secrets:
+      dockerhub_username:
+        description: 'Docker Hub Username'
+        required: true
+      dockerhub_token:
+        description: 'Docker Hub Access Token'
+        required: true
+
+jobs:
+  push_dh_job:
+    name: Push Image to Docker Hub
+    runs-on: ubuntu-latest
+
+    steps:
+      # Docker Hub 로그인
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.dockerhub_username }}
+          password: ${{ secrets.dockerhub_token }}
+
+      # Docker 이미지 Docker Hub로 푸시
+      - name: Push Docker image to Docker Hub
+        env:
+          DH_IMAGE_NAME: ${{ inputs.image_name_dh }}
+          IMAGE_TAG_SHA: ${{ inputs.image_tag_sha }}
+          IMAGE_TAG_LATEST: ${{ inputs.image_tag_latest }}
+        run: |
+          echo "Pushing image: $DH_IMAGE_NAME:$IMAGE_TAG_SHA"
+          docker push $DH_IMAGE_NAME:$IMAGE_TAG_SHA
+          echo "Pushing image: $DH_IMAGE_NAME:$IMAGE_TAG_LATEST"
+          docker push $DH_IMAGE_NAME:$IMAGE_TAG_LATEST
