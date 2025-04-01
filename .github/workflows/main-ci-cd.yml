@@ -58,8 +58,8 @@ jobs:
     needs: call_build_test # 빌드/테스트 Job 완료 후 실행
     # 재사용 워크플로우에 필요한 입력값 전달
     with:
-      ecr_repo: ${{ secrets.AWS_ECR_REPOSITORY }}
-      dockerhub_repo: ${{ secrets.DOCKERHUB_REPO }}
+      ecr_repo: ${{ vars.AWS_ECR_REPOSITORY }}
+      dockerhub_repo: ${{ vars.DOCKERHUB_REPO }}
     # 재사용 워크플로우에 필요한 시크릿 전달
     secrets:
       # Docker Hub 사용자 이름은 input 대신 secret으로 전달하는 것이 더 안전할 수 있습니다.
