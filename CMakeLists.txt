@@ -2,6 +2,7 @@
 # 프로젝트 특정 논리를 정의합니다.
 #
 cmake_minimum_required (VERSION 3.30)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.30)
 
 # --- 타겟 Windows 버전 정의 (Windows 10 이상) ---
 if(WIN32)
@@ -32,7 +33,6 @@ endif()
 
 project ("CherryRecorder-Server" LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # 1) EchoServer 라이브러리 (또는 소스) 빌드
@@ -56,9 +56,7 @@ target_link_libraries(CherryRecorder-Server-App
     PRIVATE CherryRecorder-Server
 )
 
-if (CMAKE_VERSION VERSION_GREATER 3.12)
-  set_property(TARGET CherryRecorder-Server PROPERTY CXX_STANDARD 20)
-endif()
+set_property(TARGET CherryRecorder-Server PROPERTY CXX_STANDARD 20)
 
 # TODO: 필요한 경우 테스트를 추가하고 대상을 설치합니다.
 # BUILD_TESTING 옵션이 ON일 때만 테스트 관련 설정을 처리합니다.
