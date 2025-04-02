@@ -41,6 +41,14 @@ jobs:
         run: |
           cd ${{ github.workspace }}/vcpkg && git pull origin master && cd ..
           ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+        # --- 단계 1.1d: vcpkg 상태 확인 ---
+      - name: 1.1d Verify vcpkg status after update
+        working-directory: ${{ github.workspace }}/vcpkg
+        run: |
+          echo "--- Current vcpkg status ---"
+          git status
+          echo "--- Last vcpkg commit ---"
+          git log -1
 
       # 4. CMake 캐시
       - name: Cache CMake Build Directory
@@ -50,6 +58,12 @@ jobs:
             key: build-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt', '**/vcpkg.json') }}
             restore-keys: |
                 build-${{ runner.os }}-
+      # --- 단계 1.6b: mysql-connector-cpp 빌드 트리 강제 삭제 ---
+      # 목적: 해당 의존성의 캐시 문제를 해결하기 위해 강제로 클린 빌드 유도
+      - name: 1.6b Force clean build for mysql-connector-cpp
+        run: |
+          echo "Attempting to remove vcpkg buildtree for mysql-connector-cpp..."
+          rm -rf ${{ github.workspace }}/vcpkg/buildtrees/mysql-connector-cpp || echo "Buildtree directory not found or rm failed (maybe first run)."
 
       # 5. CMake Configure (Release, Tests Enabled by default in CMakeLists)
       - name: Configure CMake Project (Linux, Release)
