@@ -147,19 +147,15 @@ jobs:
       # Task Definition 템플릿 파일 경로
       task_definition_template_path: .github/task-definition.json.template
       # Task Definition 템플릿에 필요한 추가 환경 변수 전달
-      env_vars_for_template: | # JSON 문자열 또는 다른 방식으로 전달 가능
-        {
-          "SERVER_PORT_VALUE": "${{ vars.SERVER_PORT_VALUE }}",
-          "DB_HOST": "${{ vars.DB_HOST }}",
-          "DB_USER": "${{ vars.DB_USER }}",
-          "TASK_EXECUTION_ROLE_ARN": "${{ vars.TASK_EXECUTION_ROLE_ARN }}"
-        }
+      server_port_value: ${{ vars.SERVER_PORT_VALUE }}
+      db_host: ${{ vars.DB_HOST }}
+      db_user: ${{ vars.DB_USER }}
+      task_execution_role_arn: ${{ vars.TASK_EXECUTION_ROLE_ARN }}
     secrets:
       # AWS OIDC 역할 ARN
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
       # Task Definition 템플릿에 필요한 비밀 정보 전달
       # 예: DB_PASSWORD_SECRET_ARN: ${{ secrets.DB_PASSWORD_SECRET_ARN }}
-      # 예: TASK_ROLE_ARN: ${{ secrets.TASK_ROLE_ARN }}
 
   # --- 8. 연결 확인 ---
   # AWS 배포가 완료되면 배포된 서비스로 네트워크 연결을 시도하여 최종 확인합니다.

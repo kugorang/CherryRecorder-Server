@@ -14,8 +14,10 @@ on:
       ecs_task_def_family: { required: true, type: string }
       container_name: { required: true, type: string }
       task_definition_template_path: { required: true, type: string }
-      # Task Definition 템플릿 치환에 필요한 환경 변수들을 JSON 문자열로 받음
-      env_vars_for_template: { required: false, type: string, default: '{}' }
+      server_port_value: { required: false, type: string, default: '8080' }
+      db_host: { required: false, type: string }
+      db_user: { required: false, type: string }
+      task_execution_role_arn: { required: false, type: string }
     # 비밀값 정의
     secrets:
       aws_role_to_assume: { required: true }
@@ -53,9 +55,6 @@ jobs:
           CONTAINER_NAME: ${{ inputs.container_name }}
           TASK_DEFINITION_FAMILY: ${{ inputs.ecs_task_def_family }}
           AWS_REGION: ${{ inputs.aws_region }}
-          # 입력받은 JSON 문자열을 파싱하여 환경 변수로 추가 설정 (jq 필요)
-          # 예: SERVER_PORT_VALUE, DB_HOST, DB_USER 등
-          ${{ fromJson(inputs.env_vars_for_template) }}
           # 비밀 정보도 환경 변수로 설정 (주의: 로그 노출 가능성 있으므로 신중히 사용)
           # DB_PASSWORD_SECRET_ARN: ${{ secrets.DB_PASSWORD_SECRET_ARN }}
         run: |
