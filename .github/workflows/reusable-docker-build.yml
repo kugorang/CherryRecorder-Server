@@ -25,10 +25,14 @@ on:
       image_tag_latest:
         description: 'Image tag "latest"'
         value: 'latest'
-    # secrets는 build 자체에는 필요 없지만, 만약 build arg 등으로 전달해야 한다면 정의
-    # secrets:
-    #   dockerhub_username:
-    #     required: true
+      # --- secrets 섹션 추가 또는 수정 ---
+      secrets:
+        dockerhub_username: # 호출하는 워크플로우에서 전달받을 Secret 이름 선언
+          description: 'Docker Hub Username needed for tagging'
+          required: true # 이 Secret이 반드시 전달되어야 함을 명시
+        # 만약 AWS 관련 정보도 여기서 필요하다면 추가 (현재는 push 단계에서만 필요)
+        # aws_role_to_assume: { required: false }
+        # aws_region: { required: false }
 
 jobs:
   build_image_job:

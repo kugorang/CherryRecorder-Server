@@ -3,15 +3,13 @@ name: Reusable - Connection Check
 
 on:
   workflow_call:
-    inputs:
+    secrets:
       server_address:
         description: 'Address (ALB DNS or IP) of the deployed server'
         required: true
-        type: string
       server_port:
         description: 'Port number of the deployed server'
         required: true
-        type: string
     # secrets는 직접 전달받지 않고, 호출하는 쪽(main-ci-cd.yml)에서 input으로 변환하여 전달
     # 또는 여기서 직접 OIDC로 자격 증명 얻어 AWS CLI로 주소 조회 등 가능
 
