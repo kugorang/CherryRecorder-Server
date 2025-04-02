@@ -1,7 +1,7 @@
 # CMakeList.txt: CherryRecorder-Server에 대한 CMake 프로젝트, 여기에 소스를 포함하고
 # 프로젝트 특정 논리를 정의합니다.
 #
-cmake_minimum_required (VERSION 3.8)
+cmake_minimum_required (VERSION 3.30)
 
 # --- 타겟 Windows 버전 정의 (Windows 10 이상) ---
 if(WIN32)
