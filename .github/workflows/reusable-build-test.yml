@@ -67,6 +67,8 @@ jobs:
 
       # 5. CMake Configure (Release, Tests Enabled by default in CMakeLists)
       - name: Configure CMake Project (Linux, Release)
+        env:
+          VCPKG_CMAKE_CONFIGURE_OPTIONS: "-DCMAKE_POLICY_VERSION_MINIMUM=3.20"
         run: >
           cmake -S . -B build
           -G Ninja
