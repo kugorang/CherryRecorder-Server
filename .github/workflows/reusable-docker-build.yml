@@ -1,17 +1,28 @@
 # .github/workflows/reusable-docker-build.yml
+# 목적: Dockerfile을 사용하여 이미지를 빌드하고, ECR 및 Docker Hub 푸시를 위한 태그를 지정합니다.
 name: Reusable - Build Docker Image
 
 on:
   workflow_call:
+    # 입력값: 리포지토리 이름, ECR 주소 구성 요소
     inputs:
+      aws_region:
+        description: 'AWS region for ECR'
+        required: true
+        type: string
+      aws_account_id:
+        description: 'AWS Account ID for ECR registry'
+        required: true # ECR 주소 구성 위해 필요
+        type: string
       ecr_repo:
         description: 'AWS ECR repository name'
         required: true
         type: string
       dockerhub_repo:
-        description: 'Docker Hub repository name'
+        description: 'Docker Hub repository name (e.g., user/repo)'
         required: true
         type: string
+    # 출력값: 생성된 이미지의 전체 이름과 태그
     outputs:
       image_name_ecr:
         description: 'Full image name for ECR (without tags)'
@@ -25,69 +36,55 @@ on:
       image_tag_latest:
         description: 'Image tag "latest"'
         value: 'latest'
-      # --- secrets 섹션 추가 또는 수정 ---
-      secrets:
-        dockerhub_username: # 호출하는 워크플로우에서 전달받을 Secret 이름 선언
-          description: 'Docker Hub Username needed for tagging'
-          required: true # 이 Secret이 반드시 전달되어야 함을 명시
-        # 만약 AWS 관련 정보도 여기서 필요하다면 추가 (현재는 push 단계에서만 필요)
-        # aws_role_to_assume: { required: false }
-        # aws_region: { required: false }
+    # 비밀값: Docker Hub 사용자 이름 (태그 지정 시 필요)
+    secrets:
+      dockerhub_username:
+        description: 'Docker Hub Username'
+        required: true
 
 jobs:
   build_image_job:
     name: Build and Tag Docker Image
     runs-on: ubuntu-latest
-    # Job 레벨 출력값 정의
     outputs:
       ecr_image_name_no_tag: ${{ steps.set-names.outputs.ecr_name }}
       dh_image_name_no_tag: ${{ steps.set-names.outputs.dh_name }}
       tag_sha: ${{ steps.tag-image.outputs.tag }}
 
     steps:
+      # 1. 소스 코드 체크아웃
       - name: Check out source code
         uses: actions/checkout@v4
 
-      # 로그인 정보는 푸시 단계에서만 필요하므로 여기서는 불필요
-      # 단, ECR 주소를 여기서 알아내야 한다면 AWS 로그인은 필요할 수 있음 (login-ecr 추가)
-      # 여기서는 ECR 주소를 다음 단계에서 구성한다고 가정
-
-      # 임시: ECR 주소 구성을 위해 AWS 로그인 및 리전/계정 정보 필요 가정 (개선 필요)
-      # 이 부분은 메인 워크플로우나 이전 단계에서 처리하는 것이 더 좋을 수 있음
-      - name: Configure AWS Credentials (OIDC) # ECR 주소 구성용 임시
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-            role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-            aws-region: ${{ secrets.AWS_REGION }}
-      - name: Log in to Amazon ECR # ECR 주소 구성용 임시
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-      # --- 임시 끝 ---
-
-      # 이미지 태그 설정 (GitHub SHA)
+      # 2. 이미지 태그 설정 (Git SHA 사용)
       - name: Set Image Tag
         id: tag-image
         run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
 
-      # 이미지 이름 설정 (태그 제외) 및 출력
+      # 3. ECR 및 Docker Hub 이미지 전체 이름 설정 및 출력
       - name: Set Image Names
         id: set-names
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }} # 임시 로그인 결과 사용
+          # 입력값 및 Secret 사용
+          AWS_ACCOUNT_ID: ${{ inputs.aws_account_id }}
+          AWS_REGION: ${{ inputs.aws_region }}
           ECR_REPO: ${{ inputs.ecr_repo }}
-          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }} # Secret에서 직접 받음 (개선점: input으로 받을 수도 있음)
+          DH_USER: ${{ secrets.dockerhub_username }}
           DH_REPO: ${{ inputs.dockerhub_repo }}
         run: |
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           echo "ecr_name=$ECR_REGISTRY/$ECR_REPO" >> $GITHUB_OUTPUT
           echo "dh_name=$DH_USER/$DH_REPO" >> $GITHUB_OUTPUT
 
-      # Docker 이미지 빌드 및 태그 지정 (ECR + Docker Hub)
+      # 4. Docker 이미지 빌드 및 태그 동시 지정
       - name: Build and tag Docker image
         env:
+          # 이전 단계 출력값 사용
           ECR_IMAGE_NAME: ${{ steps.set-names.outputs.ecr_name }}
           DH_IMAGE_NAME: ${{ steps.set-names.outputs.dh_name }}
           IMAGE_TAG: ${{ steps.tag-image.outputs.tag }}
           DOCKER_BUILDKIT: 1
+        # 빌드 시 필요한 모든 태그를 한 번에 지정
         run: |
           docker build . \
             --tag $ECR_IMAGE_NAME:$IMAGE_TAG \
