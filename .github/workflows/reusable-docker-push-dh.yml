@@ -29,7 +29,15 @@ jobs:
       
       # GHCR에서 이미지 가져오기
       - name: Pull image from GHCR
-        run: docker pull ${{ inputs.ghcr_image_uri }}
+        run: |
+          # 리포지토리 이름을 소문자로 변환
+          REPO_NAME="${{ github.repository }}"
+          REPO_NAME_LOWERCASE="${REPO_NAME,,}"
+    
+          echo "Converting: $REPO_NAME → $REPO_NAME_LOWERCASE"
+
+          GHCR_IMAGE="ghcr.io/$REPO_NAME_LOWERCASE/build-cache:$IMAGE_TAG"
+          docker pull $GHCR_IMAGE
 
       # 1. Docker Hub 로그인
       - name: Log in to Docker Hub
