@@ -36,7 +36,7 @@ jobs:
           # 리포지토리 이름을 소문자로 변환
           REPO_NAME="${{ github.repository },,}"
 
-          GHCR_IMAGE="ghcr.io/${REPO_NAME}-build-cache:$IMAGE_TAG"
+          GHCR_IMAGE="ghcr.io/$REPO_NAME-build-cache:$IMAGE_TAG"
           docker pull $GHCR_IMAGE
 
       # 1. AWS 자격 증명 설정 (OIDC)
