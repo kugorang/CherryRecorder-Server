@@ -15,8 +15,7 @@
       "essential": true,
       "portMappings": [
         {
-          "containerPort": "$",
-          { "SERVER_PORT_VALUE" },
+          "containerPort": "${SERVER_PORT_VALUE}",
           "hostPort": 0,
           "protocol": "tcp"
         }
