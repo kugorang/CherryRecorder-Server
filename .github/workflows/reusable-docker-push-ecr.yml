@@ -33,10 +33,12 @@ jobs:
       # GHCR에서 이미지 가져오기
       - name: Pull image from GHCR
         run: |
-          # 리포지토리 이름을 소문자로 변환
-          REPO_NAME="${{ github.repository },,}"
+          # 먼저 GitHub 표현식을 변수에 할당
+          REPO_NAME=${{ github.repository }}
+          # 그 다음 Bash에서 소문자 변환
+          REPO_NAME_LOWERCASE="${REPO_NAME,,}"
 
-          GHCR_IMAGE="ghcr.io/$REPO_NAME-build-cache:$IMAGE_TAG"
+          GHCR_IMAGE="ghcr.io/${REPO_NAME_LOWERCASE}-build-cache:$IMAGE_TAG"
           docker pull $GHCR_IMAGE
 
       # 1. AWS 자격 증명 설정 (OIDC)

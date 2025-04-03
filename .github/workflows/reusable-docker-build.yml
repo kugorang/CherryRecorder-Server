@@ -114,12 +114,12 @@ jobs:
           ECR_IMAGE_NAME: ${{ steps.set-names.outputs.ecr_name }}
           IMAGE_TAG: ${{ steps.tag-image.outputs.tag }}
         run: |
-          # 리포지토리 이름을 소문자로 변환
-          REPO_NAME="${{ github.repository },,}"
+          # 먼저 GitHub 표현식을 변수에 할당
+          REPO_NAME=${{ github.repository }}
+          # 그 다음 Bash에서 소문자 변환
+          REPO_NAME_LOWERCASE="${REPO_NAME,,}"
           # /build-cache 대신 -build-cache 사용
-          GHCR_IMAGE="ghcr.io/$REPO_NAME-build-cache:$IMAGE_TAG"
-
-          echo "Converting: $REPO_NAME → $REPO_NAME-build-cache"
+          GHCR_IMAGE="ghcr.io/${REPO_NAME_LOWERCASE}-build-cache:$IMAGE_TAG"
 
           # 이미지가 실제로 존재하면 태그 지정
           docker tag $ECR_IMAGE_NAME:$IMAGE_TAG $GHCR_IMAGE
