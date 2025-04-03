@@ -114,12 +114,9 @@ jobs:
           ECR_IMAGE_NAME: ${{ steps.set-names.outputs.ecr_name }}
           IMAGE_TAG: ${{ steps.tag-image.outputs.tag }}
         run: |
-          # 디버깅을 위한 출력
-          echo "Using ECR_IMAGE_NAME: $ECR_IMAGE_NAME"
-          echo "Using IMAGE_TAG: $IMAGE_TAG"
-    
-          # 이미지가 존재하는지 확인
-          docker images
+          # 리포지토리 이름을 소문자로 변환
+          REPO_NAME="${{ github.repository }}"
+          REPO_NAME_LOWERCASE=$(echo $REPO_NAME | tr '[:upper:]' '[:lower:]')
 
           GHCR_IMAGE="ghcr.io/${{ github.repository }}/build-cache:$IMAGE_TAG"
           # 이미지가 실제로 존재하면 태그 지정
