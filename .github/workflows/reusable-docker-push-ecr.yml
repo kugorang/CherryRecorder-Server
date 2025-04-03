@@ -9,6 +9,7 @@ on:
       image_tag_sha: { required: true, type: string }
       image_tag_latest: { required: true, type: string }
       aws_region: { required: true, type: string }
+      ghcr_image_uri: { required: true, type: string }
     secrets:
       aws_role_to_assume: { required: true }
 
@@ -18,8 +19,21 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write # OIDC 필수 권한
+      packages: read
 
     steps:
+      # GitHub 컨테이너 레지스트리 로그인
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      
+      # GHCR에서 이미지 가져오기
+      - name: Pull image from GHCR
+        run: docker pull ${{ inputs.ghcr_image_uri }}
+
       # 1. AWS 자격 증명 설정 (OIDC)
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -31,15 +45,18 @@ jobs:
       # 2. ECR 로그인
       - name: Log in to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
-
+        
       # 3. Docker 이미지 푸시 (두 태그 모두)
       - name: Push Docker image to Amazon ECR
         env:
           ECR_IMAGE_NAME: ${{ inputs.image_name_ecr }}
           IMAGE_TAG_SHA: ${{ inputs.image_tag_sha }}
           IMAGE_TAG_LATEST: ${{ inputs.image_tag_latest }}
+          GHCR_IMAGE: ${{ inputs.ghcr_image_uri }}
         run: |
           set -e # 명령어 실패 시 중단
+          docker tag $GHCR_IMAGE $ECR_IMAGE_NAME:$IMAGE_TAG_SHA
+          docker tag $GHCR_IMAGE $ECR_IMAGE_NAME:$IMAGE_TAG_LATEST
           echo "Pushing image: $ECR_IMAGE_NAME:$IMAGE_TAG_SHA"
           docker push $ECR_IMAGE_NAME:$IMAGE_TAG_SHA
           echo "Pushing image: $ECR_IMAGE_NAME:$IMAGE_TAG_LATEST"

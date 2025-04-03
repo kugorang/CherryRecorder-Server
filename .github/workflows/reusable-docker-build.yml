@@ -36,6 +36,9 @@ on:
       image_tag_latest:
         description: 'Image tag "latest"'
         value: 'latest'
+      ghcr_image_uri:
+        value: ${{ jobs.build_image_job.outputs.ghcr_uri }}
+
     # 비밀값: Docker Hub 사용자 이름 (태그 지정 시 필요)
     secrets:
       dockerhub_username:
@@ -46,10 +49,15 @@ jobs:
   build_image_job:
     name: Build and Tag Docker Image
     runs-on: ubuntu-latest
+    # GitHub 패키지 접근 권한 추가
+    permissions:
+      packages: write
+      contents: read
     outputs:
       ecr_image_name_no_tag: ${{ steps.set-names.outputs.ecr_name }}
       dh_image_name_no_tag: ${{ steps.set-names.outputs.dh_name }}
       tag_sha: ${{ steps.tag-image.outputs.tag }}
+      ghcr_uri: ${{ steps.push-ghcr.outputs.image_uri }}
 
     steps:
       # 1. 소스 코드 체크아웃
@@ -91,3 +99,21 @@ jobs:
             --tag $ECR_IMAGE_NAME:latest \
             --tag $DH_IMAGE_NAME:$IMAGE_TAG \
             --tag $DH_IMAGE_NAME:latest
+
+      # GHCR 로그인 및 푸시 단계 추가
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      
+      - name: Push to GHCR
+        id: push-ghcr
+        env:
+          IMAGE_TAG: ${{ steps.tag-image.outputs.tag }}
+        run: |
+          GHCR_IMAGE="ghcr.io/${{ github.repository }}/build-cache:$IMAGE_TAG"
+          docker tag $ECR_IMAGE_NAME:$IMAGE_TAG $GHCR_IMAGE
+          docker push $GHCR_IMAGE
+          echo "image_uri=$GHCR_IMAGE" >> $GITHUB_OUTPUT

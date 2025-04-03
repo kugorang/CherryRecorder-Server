@@ -18,6 +18,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # GitHub 컨테이너 레지스트리 로그인
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      
+      # GHCR에서 이미지 가져오기
+      - name: Pull image from GHCR
+        run: docker pull ${{ inputs.ghcr_image_uri }}
+
       # 1. Docker Hub 로그인
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -31,8 +43,11 @@ jobs:
           DH_IMAGE_NAME: ${{ inputs.image_name_dh }}
           IMAGE_TAG_SHA: ${{ inputs.image_tag_sha }}
           IMAGE_TAG_LATEST: ${{ inputs.image_tag_latest }}
+          GHCR_IMAGE: ${{ inputs.ghcr_image_uri }}
         run: |
           set -e # 명령어 실패 시 중단
+          docker tag $GHCR_IMAGE $DH_IMAGE_NAME:$IMAGE_TAG_SHA
+          docker tag $GHCR_IMAGE $DH_IMAGE_NAME:$IMAGE_TAG_LATEST
           echo "Pushing image: $DH_IMAGE_NAME:$IMAGE_TAG_SHA"
           docker push $DH_IMAGE_NAME:$IMAGE_TAG_SHA
           echo "Pushing image: $DH_IMAGE_NAME:$IMAGE_TAG_LATEST"
