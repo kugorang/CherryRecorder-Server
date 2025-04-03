@@ -76,6 +76,8 @@ jobs:
     uses: ./.github/workflows/reusable-docker-build.yml
     needs: call_build_test # Job 1 성공 후 실행
     # 재사용 워크플로우에 필요한 입력값(리포지토리 이름 등) 전달
+    permissions:
+      packages: write # GitHub 패키지 접근 권한
     with:
       # GitHub Variables 사용 (권장)
       aws_region: ${{ vars.AWS_REGION }}
@@ -96,11 +98,14 @@ jobs:
     name: 5. Push Image to Docker Hub
     uses: ./.github/workflows/reusable-docker-push-dh.yml
     needs: call_docker_build # Job 4 성공 후 실행
+    permissions:
+      packages: read
     with:
       # Job 4의 출력값(이미지 이름 및 태그)을 입력으로 전달
       image_name_dh: ${{ needs.call_docker_build.outputs.image_name_dh }}
       image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
       image_tag_latest: ${{ needs.call_docker_build.outputs.image_tag_latest }}
+      ghcr_image_uri: ${{ needs.call_docker_build.outputs.ghcr_image_uri }}
     secrets:
       # Docker Hub 로그인 정보 전달
       dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -115,12 +120,14 @@ jobs:
     needs: call_docker_build # Job 4 성공 후 실행
     permissions:
       id-token: write # OIDC 인증을 위해 필요
+      packages: read
     with:
       # Job 4의 출력값 및 Variable 사용
       image_name_ecr: ${{ needs.call_docker_build.outputs.image_name_ecr }}
       image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
       image_tag_latest: ${{ needs.call_docker_build.outputs.image_tag_latest }}
       aws_region: ${{ vars.AWS_REGION }}
+      ghcr_image_uri: ${{ needs.call_docker_build.outputs.ghcr_image_uri }}
     secrets:
       # AWS OIDC 역할 ARN 전달
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
