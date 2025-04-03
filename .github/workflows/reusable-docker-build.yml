@@ -116,9 +116,11 @@ jobs:
         run: |
           # 리포지토리 이름을 소문자로 변환
           REPO_NAME="${{ github.repository }}"
-          REPO_NAME_LOWERCASE=$(echo $REPO_NAME | tr '[:upper:]' '[:lower:]')
+          REPO_NAME_LOWERCASE="${REPO_NAME,,}"
+    
+          echo "Converting: $REPO_NAME → $REPO_NAME_LOWERCASE"
 
-          GHCR_IMAGE="ghcr.io/${{ github.repository }}/build-cache:$IMAGE_TAG"
+          GHCR_IMAGE="ghcr.io/$REPO_NAME_LOWERCASE/build-cache:$IMAGE_TAG"
           # 이미지가 실제로 존재하면 태그 지정
           docker tag $ECR_IMAGE_NAME:$IMAGE_TAG $GHCR_IMAGE
           docker push $GHCR_IMAGE
