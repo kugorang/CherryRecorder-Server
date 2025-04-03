@@ -8,6 +8,7 @@ on:
       image_name_dh: { required: true, type: string }
       image_tag_sha: { required: true, type: string }
       image_tag_latest: { required: true, type: string }
+      ghcr_image_uri: { required: true, type: string }
     secrets:
       dockerhub_username: { required: true }
       dockerhub_token: { required: true } # Access Token
