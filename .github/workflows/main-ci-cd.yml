@@ -78,6 +78,7 @@ jobs:
     # 재사용 워크플로우에 필요한 입력값(리포지토리 이름 등) 전달
     permissions:
       packages: write # GitHub 패키지 접근 권한
+      contents: read  # 소스 코드 접근 권한
     with:
       # GitHub Variables 사용 (권장)
       aws_region: ${{ vars.AWS_REGION }}
