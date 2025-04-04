@@ -156,7 +156,7 @@ jobs:
     secrets:
       # AWS OIDC 역할 ARN
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-      execution_role_arn: ${{ secrets.EXECUTION_ROLE_ARN }}
+      task_execution_role_arn: ${{ secrets.TASK_EXECUTION_ROLE_ARN }}
       # Task Definition 템플릿에 필요한 비밀 정보 전달
       # 예: DB_PASSWORD_SECRET_ARN: ${{ secrets.DB_PASSWORD_SECRET_ARN }}
 
