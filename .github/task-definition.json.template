@@ -1,18 +1,18 @@
 {
-  "family": "${{ vars.ECS_TASK_DEF_FAMILY }}",
-  "executionRoleArn": "${{ vars.TASK_EXECUTION_ROLE_ARN }}",
+  "family": "$FAMILY",
+  "executionRoleArn": "$EXECUTION_ROLE_ARN",
   "networkMode": "awsvpc",
   "requiresCompatibilities": [ "EC2" ],
   "containerDefinitions": [
     {
-      "name": "${{ inputs.container_name }}",
-      "image": "placeholder", // 액션이 대체
+      "name": "$CONTAINER_NAME",
+      "image": "placeholder",
       "cpu": 256,
       "memory": 512,
       "essential": true,
       "portMappings": [
         {
-          "containerPort": "${SERVER_PORT_VALUE}",
+          "containerPort": "$SERVER_PORT_VALUE",
           "hostPort": 0,
           "protocol": "tcp"
         }
@@ -20,15 +20,7 @@
       "environment": [
         {
           "name": "SERVER_PORT",
-          "value": "${SERVER_PORT_VALUE}"
-        },
-        {
-          "name": "DB_HOST",
-          "value": "${DB_HOST}"
-        },
-        {
-          "name": "DB_USER",
-          "value": "${DB_USER}"
+          "value": "$SERVER_PORT_VALUE"
         }
       ],
       "secrets": [
@@ -36,8 +28,8 @@
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/${{ vars.ECS_TASK_DEF_FAMILY }}", // GitHub 변수 사용 예시
-          "awslogs-region": "${{ inputs.aws_region }}", // 워크플로우 입력 사용 가능
+          "awslogs-group": "/ecs/$FAMILY",
+          "awslogs-region": "$AWS_REGION",
           "awslogs-stream-prefix": "ecs"
         }
       }

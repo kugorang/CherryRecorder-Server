@@ -60,7 +60,11 @@ jobs:
             # DB_USER=${{ inputs.db_user }}
             # 필요한 다른 환경 변수 추가
           environment-variables: |
-            SERVER_PORT=${{ inputs.server_port_value }}
+            FAMILY=${{ vars.ECS_TASK_DEF_FAMILY }}
+            EXECUTION_ROLE_ARN=${{ vars.TASK_EXECUTION_ROLE_ARN }}
+            CONTAINER_NAME=${{ inputs.container_name }}
+            SERVER_PORT_VALUE=${{ inputs.server_port_value }}
+            AWS_REGION=${{ inputs.aws_region }}
 
       # 5. ECS 서비스 업데이트
       - name: Update ECS Service
