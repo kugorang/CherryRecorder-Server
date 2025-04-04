@@ -29,12 +29,9 @@ jobs:
       
       # GHCR에서 이미지 가져오기
       - name: Pull image from GHCR
+        env:
+          GHCR_IMAGE: ${{ inputs.ghcr_image_uri }}
         run: |
-          # 먼저 GitHub 표현식을 변수에 할당
-          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          REPO_NAME=$(echo "${{ github.repository }}" | cut -d '/' -f 2 | tr '[:upper:]' '[:lower:]')
-          # GHCR 이미지 이름 형식 준수
-          GHCR_IMAGE="ghcr.io/${REPO_OWNER}/${REPO_NAME}-build-cache:$IMAGE_TAG"
           echo "Using image: $GHCR_IMAGE"
           docker pull $GHCR_IMAGE
 
