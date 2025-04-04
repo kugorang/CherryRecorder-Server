@@ -61,7 +61,7 @@ jobs:
             # 필요한 다른 환경 변수 추가
           environment-variables: |
             FAMILY=${{ vars.ECS_TASK_DEF_FAMILY }}
-            EXECUTION_ROLE_ARN=${{ vars.TASK_EXECUTION_ROLE_ARN }}
+            EXECUTION_ROLE_ARN=${{ secrets.TASK_EXECUTION_ROLE_ARN }}
             CONTAINER_NAME=${{ inputs.container_name }}
             SERVER_PORT_VALUE=${{ inputs.server_port_value }}
             AWS_REGION=${{ inputs.aws_region }}
