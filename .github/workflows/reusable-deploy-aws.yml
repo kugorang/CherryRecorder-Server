@@ -11,13 +11,11 @@ on:
       aws_region: { required: true, type: string }
       ecs_cluster_name: { required: true, type: string }
       ecs_service_name: { required: true, type: string }
-      ecs_task_def_family: { required: true, type: string }
       container_name: { required: true, type: string }
       task_definition_template_path: { required: true, type: string }
       server_port_value: { required: false, type: string, default: '8080' }
       db_host: { required: false, type: string }
       db_user: { required: false, type: string }
-      task_execution_role_arn: { required: false, type: string }
     # 비밀값 정의
     secrets:
       aws_role_to_assume: { required: true }
@@ -46,49 +44,31 @@ jobs:
           aws-region: ${{ inputs.aws_region }}
           role-session-name: GitHubActions-Deploy-${{ github.run_id }}
 
-      # 3. Task Definition 파일 생성 (템플릿 + envsubst)
-      - name: Create Task Definition file from template
-        id: task-def
-        env:
-          # 치환에 사용할 변수들을 환경 변수로 설정
-          IMAGE_URI: ${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}
-          CONTAINER_NAME: ${{ inputs.container_name }}
-          TASK_DEFINITION_FAMILY: ${{ inputs.ecs_task_def_family }}
-          AWS_REGION: ${{ inputs.aws_region }}
-          # 비밀 정보도 환경 변수로 설정 (주의: 로그 노출 가능성 있으므로 신중히 사용)
-          # DB_PASSWORD_SECRET_ARN: ${{ secrets.DB_PASSWORD_SECRET_ARN }}
-        run: |
-          set -e
-          echo "Generating task definition file from template: ${{ inputs.task_definition_template_path }}"
-          # gettext-base (envsubst) 와 jq 설치 (jq는 Job 1에서 설치했다고 가정)
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends gettext-base jq
-          # envsubst로 환경 변수 치환하여 새 파일 생성
-          # 입력받은 JSON을 순회하며 export (더 안전한 방법 고려 필요)
-          echo '${{ inputs.env_vars_for_template }}' | jq -r 'to_entries|map("\(.key)=\(.value|@sh)")|.[]' >> $GITHUB_ENV
-          # 비밀값도 환경 변수로 export (주의!)
-          # echo 'DB_PASSWORD_SECRET_ARN=${{ secrets.DB_PASSWORD_SECRET_ARN }}' >> $GITHUB_ENV # 예시
-          envsubst < "${{ inputs.task_definition_template_path }}" > task-definition.json
-          echo "Generated task-definition.json:"
-          # cat task-definition.json # 민감 정보 포함 가능성 있으므로 주석 처리 권장
-          echo "task_def_path=task-definition.json" >> $GITHUB_OUTPUT
+      - name: Render and Register Amazon ECS Task Definition
+        id: render-task-def # 스텝 ID 부여 (출력 참조용)
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          # 작업 정의 템플릿 파일 경로
+          task-definition: ${{ inputs.task_definition_template_path }}
+          # 업데이트할 컨테이너 이름
+          container-name: ${{ inputs.container_name }}
+          # 사용할 도커 이미지 URI
+          image: ${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}
 
-      # 4. 새 Task Definition 리비전 등록
-      - name: Register New Task Definition Revision
-        id: register-task-def
-        run: |
-          set -e
-          echo "Registering new task definition revision..."
-          NEW_TASK_INFO=$(aws ecs register-task-definition --cli-input-json file://${{ steps.task-def.outputs.task_def_path }})
-          NEW_TASK_DEF_ARN=$(echo $NEW_TASK_INFO | jq -r .taskDefinition.taskDefinitionArn)
-          echo "New Task Definition ARN: $NEW_TASK_DEF_ARN"
-          echo "task_def_arn=$NEW_TASK_DEF_ARN" >> $GITHUB_OUTPUT
+          # 컨테이너에 주입할 일반 환경 변수 (여러 줄 문자열)
+          environment-variables: |
+            SERVER_PORT=${{ inputs.server_port_value }}
+            DB_HOST=${{ inputs.db_host }}
+            DB_USER=${{ inputs.db_user }}
+            # 필요한 다른 환경 변수 추가
 
       # 5. ECS 서비스 업데이트
       - name: Update ECS Service
         env:
           ECS_CLUSTER_NAME: ${{ inputs.ecs_cluster_name }}
           ECS_SERVICE_NAME: ${{ inputs.ecs_service_name }}
-          NEW_TASK_DEF_ARN: ${{ steps.register-task-def.outputs.task_def_arn }}
+          # 'render-task-def' 스텝의 출력(새 작업 정의 ARN) 사용
+          NEW_TASK_DEF_ARN: ${{ steps.render-task-def.outputs.task-definition-arn }}
         run: |
           set -e
           echo "Updating service $ECS_SERVICE_NAME in cluster $ECS_CLUSTER_NAME..."

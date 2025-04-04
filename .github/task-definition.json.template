@@ -1,15 +1,12 @@
 {
-  "family": "${TASK_DEFINITION_FAMILY}",
-  "taskRoleArn": "${TASK_ROLE_ARN}",
-  "executionRoleArn": "${TASK_EXECUTION_ROLE_ARN}",
-  "networkMode": "bridge",
+  "family": "${{ vars.ECS_TASK_DEF_FAMILY }}",
+  "executionRoleArn": "${{ vars.TASK_EXECUTION_ROLE_ARN }}",
+  "networkMode": "awsvpc",
   "requiresCompatibilities": [ "EC2" ],
-  "cpu": "256",
-  "memory": "512",
   "containerDefinitions": [
     {
-      "name": "${CONTAINER_NAME}",
-      "image": "${IMAGE_URI}",
+      "name": "${{ inputs.container_name }}",
+      "image": "placeholder", // 액션이 대체
       "cpu": 256,
       "memory": 512,
       "essential": true,
@@ -39,8 +36,8 @@
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/${TASK_DEFINITION_FAMILY}",
-          "awslogs-region": "${AWS_REGION}",
+          "awslogs-group": "/ecs/${{ vars.ECS_TASK_DEF_FAMILY }}", // GitHub 변수 사용 예시
+          "awslogs-region": "${{ inputs.aws_region }}", // 워크플로우 입력 사용 가능
           "awslogs-stream-prefix": "ecs"
         }
       }

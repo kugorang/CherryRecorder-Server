@@ -144,7 +144,6 @@ jobs:
       aws_region: ${{ vars.AWS_REGION }}
       ecs_cluster_name: ${{ vars.ECS_CLUSTER_NAME }}
       ecs_service_name: ${{ vars.ECS_SERVICE_NAME }}
-      ecs_task_def_family: ${{ vars.ECS_TASK_DEF_FAMILY }}
       container_name: ${{ vars.CONTAINER_NAME }}
       # Task Definition 템플릿 파일 경로
       task_definition_template_path: .github/task-definition.json.template
@@ -152,7 +151,6 @@ jobs:
       server_port_value: ${{ vars.SERVER_PORT_VALUE }}
       db_host: ${{ vars.DB_HOST }}
       db_user: ${{ vars.DB_USER }}
-      task_execution_role_arn: ${{ vars.TASK_EXECUTION_ROLE_ARN }}
     secrets:
       # AWS OIDC 역할 ARN
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
