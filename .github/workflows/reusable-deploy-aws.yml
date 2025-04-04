@@ -61,14 +61,16 @@ jobs:
             # DB_USER=${{ inputs.db_user }}
             # 필요한 다른 환경 변수 추가
           environment-variables: |
-            FAMILY=${{ vars.ECS_TASK_DEF_FAMILY }}
-            EXECUTION_ROLE_ARN=${{ secrets.task_execution_role_arn }}
-            CONTAINER_NAME=${{ inputs.container_name }}
-            SERVER_PORT_VALUE=${{ inputs.server_port_value }}
-            AWS_REGION=${{ inputs.aws_region }}
+              FAMILY=${{ vars.ECS_TASK_DEF_FAMILY }}
+              EXECUTION_ROLE_ARN=${{ secrets.task_execution_role_arn }}
+              CONTAINER_NAME=${{ inputs.container_name }}
+              SERVER_PORT_VALUE=${{ inputs.server_port_value }}
+              AWS_REGION=${{ inputs.aws_region }}
 
-          run: |
-            sed "s/\$EXECUTION_ROLE_ARN/${EXECUTION_ROLE_ARN}/g" .github/task-definition.json.template > rendered.json
+      # ↓ 다음에 별도의 step 으로 sed나 cat 같은 스크립트 작성
+      - name: Debug or Additional Sed
+        run: |
+            sed "s/\$EXECUTION_ROLE_ARN/${{ secrets.TASK_EXECUTION_ROLE_ARN }}/g" rendered.json
             cat rendered.json
             # JSON이 잘 생성되는지 확인
 
