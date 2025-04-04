@@ -19,6 +19,7 @@ on:
     # 비밀값 정의
     secrets:
       aws_role_to_assume: { required: true }
+      execution_role_arn: { required: true }
       # Task Definition 템플릿 치환에 필요한 비밀 정보들 (호출자가 전달)
       # 예: DB_PASSWORD_SECRET_ARN: { required: false }
 
@@ -61,7 +62,7 @@ jobs:
             # 필요한 다른 환경 변수 추가
           environment-variables: |
             FAMILY=${{ vars.ECS_TASK_DEF_FAMILY }}
-            EXECUTION_ROLE_ARN=${{ secrets.TASK_EXECUTION_ROLE_ARN }}
+            EXECUTION_ROLE_ARN=${{ secrets.execution_role_arn }}
             CONTAINER_NAME=${{ inputs.container_name }}
             SERVER_PORT_VALUE=${{ inputs.server_port_value }}
             AWS_REGION=${{ inputs.aws_region }}
