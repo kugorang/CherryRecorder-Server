@@ -14,8 +14,8 @@ on:
       container_name: { required: true, type: string }
       task_definition_template_path: { required: true, type: string }
       server_port_value: { required: false, type: string, default: '8080' }
-      db_host: { required: false, type: string }
-      db_user: { required: false, type: string }
+      # db_host: { required: false, type: string }
+      # db_user: { required: false, type: string }
     # 비밀값 정의
     secrets:
       aws_role_to_assume: { required: true }
@@ -58,8 +58,8 @@ jobs:
           # 컨테이너에 주입할 일반 환경 변수 (여러 줄 문자열)
           environment-variables: |
             SERVER_PORT=${{ inputs.server_port_value }}
-            DB_HOST=${{ inputs.db_host }}
-            DB_USER=${{ inputs.db_user }}
+            # DB_HOST=${{ inputs.db_host }}
+            # DB_USER=${{ inputs.db_user }}
             # 필요한 다른 환경 변수 추가
 
       # 5. ECS 서비스 업데이트

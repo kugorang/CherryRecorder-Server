@@ -132,7 +132,9 @@ jobs:
   call_deploy_aws:
     name: 7. Deploy Application to AWS ECS
     uses: ./.github/workflows/reusable-deploy-aws.yml
-    needs: call_push_ecr # Job 6 성공 후 실행
+    needs: 
+      - call_docker_build # Job 4 성공 후 실행
+      - call_push_ecr # Job 6 성공 후 실행
     permissions:
       id-token: write   # OIDC 인증
       contents: read    # Task Definition 템플릿 파일 읽기
@@ -149,8 +151,8 @@ jobs:
       task_definition_template_path: .github/task-definition.json.template
       # Task Definition 템플릿에 필요한 추가 환경 변수 전달
       server_port_value: ${{ vars.SERVER_PORT_VALUE }}
-      db_host: ${{ vars.DB_HOST }}
-      db_user: ${{ vars.DB_USER }}
+      # db_host: ${{ vars.DB_HOST }}
+      # db_user: ${{ vars.DB_USER }}
     secrets:
       # AWS OIDC 역할 ARN
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
