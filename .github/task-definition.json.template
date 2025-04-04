@@ -1,7 +1,7 @@
 {
   "family": "$FAMILY",
   "executionRoleArn": "$EXECUTION_ROLE_ARN",
-  "networkMode": "awsvpc",
+  "networkMode": "bridge",
   "requiresCompatibilities": [ "EC2" ],
   "containerDefinitions": [
     {
