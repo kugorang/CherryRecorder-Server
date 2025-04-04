@@ -45,58 +45,68 @@ jobs:
           aws-region: ${{ inputs.aws_region }}
           role-session-name: GitHubActions-Deploy-${{ github.run_id }}
 
+      - name: Render task definition template
+        run: |
+          sed -e "s/\$FAMILY/${FAMILY}/g" \
+              -e "s/\$EXECUTION_ROLE_ARN/${EXECUTION_ROLE_ARN}/g" \
+              -e "s/\$CONTAINER_NAME/${CONTAINER_NAME}/g" \
+              -e "s/\$SERVER_PORT_VALUE/${SERVER_PORT_VALUE}/g" \
+              -e "s/\$AWS_REGION/${AWS_REGION}/g" \
+              ${{ inputs.task_definition_template_path }} > rendered.json
+        env:
+          FAMILY: ${{ vars.ECS_TASK_DEF_FAMILY }}
+          EXECUTION_ROLE_ARN: ${{ secrets.task_execution_role_arn }}
+          CONTAINER_NAME: ${{ inputs.container_name }}
+          SERVER_PORT_VALUE: ${{ inputs.server_port_value }}
+          AWS_REGION: ${{ inputs.aws_region }}
+
+      - name: Validate rendered task definition
+        run: jq . rendered.json
+
       - name: Render and Register Amazon ECS Task Definition
         id: render-task-def # 스텝 ID 부여 (출력 참조용)
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
           # 작업 정의 템플릿 파일 경로
-          task-definition: ${{ inputs.task_definition_template_path }}
+          task-definition: rendered.json
           # 업데이트할 컨테이너 이름
           container-name: ${{ inputs.container_name }}
           # 사용할 도커 이미지 URI
           image: ${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}
 
-          # 컨테이너에 주입할 일반 환경 변수 (여러 줄 문자열)
-            # DB_HOST=${{ inputs.db_host }}
-            # DB_USER=${{ inputs.db_user }}
-            # 필요한 다른 환경 변수 추가
-          environment-variables: |
-              FAMILY=${{ vars.ECS_TASK_DEF_FAMILY }}
-              EXECUTION_ROLE_ARN=${{ secrets.task_execution_role_arn }}
-              CONTAINER_NAME=${{ inputs.container_name }}
-              SERVER_PORT_VALUE=${{ inputs.server_port_value }}
-              AWS_REGION=${{ inputs.aws_region }}
-
-      # ↓ 다음에 별도의 step 으로 sed나 cat 같은 스크립트 작성
-      - name: Debug or Additional Sed
+      - name: Register task definition
+        id: register-task
         run: |
-            sed "s/\$EXECUTION_ROLE_ARN/${{ secrets.TASK_EXECUTION_ROLE_ARN }}/g" rendered.json
-            cat rendered.json
-            # JSON이 잘 생성되는지 확인
+          TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json file://${{ steps.render-image.outputs.task-definition }} --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "task_def_arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
 
-      # 5. ECS 서비스 업데이트
-      - name: Update ECS Service
-        env:
-          ECS_CLUSTER_NAME: ${{ inputs.ecs_cluster_name }}
-          ECS_SERVICE_NAME: ${{ inputs.ecs_service_name }}
-          # 'render-task-def' 스텝의 출력(새 작업 정의 ARN) 사용
-          NEW_TASK_DEF_ARN: ${{ steps.render-task-def.outputs.task-definition-arn }}
+      - name: Update ECS service
         run: |
-          set -e
-          echo "Updating service $ECS_SERVICE_NAME in cluster $ECS_CLUSTER_NAME..."
-          aws ecs update-service \
-            --cluster $ECS_CLUSTER_NAME \
-            --service $ECS_SERVICE_NAME \
-            --task-definition $NEW_TASK_DEF_ARN \
-            --force-new-deployment
+          aws ecs update-service --cluster ${{ inputs.ecs_cluster_name }} --service ${{ inputs.ecs_service_name }} --task-definition ${{ steps.register-task.outputs.task_def_arn }}
 
-      # 6. 배포 완료 대기
-      - name: Wait for deployment stabilization
-        env:
-          ECS_CLUSTER_NAME: ${{ inputs.ecs_cluster_name }}
-          ECS_SERVICE_NAME: ${{ inputs.ecs_service_name }}
-        run: |
-          set -e
-          echo "Waiting for service $ECS_SERVICE_NAME to become stable..."
-          aws ecs wait services-stable --cluster $ECS_CLUSTER_NAME --services $ECS_SERVICE_NAME
-          echo "Service $ECS_SERVICE_NAME is stable."
+      ## 5. ECS 서비스 업데이트
+      #- name: Update ECS Service
+      #  env:
+      #    ECS_CLUSTER_NAME: ${{ inputs.ecs_cluster_name }}
+      #    ECS_SERVICE_NAME: ${{ inputs.ecs_service_name }}
+      #    # 'render-task-def' 스텝의 출력(새 작업 정의 ARN) 사용
+      #    NEW_TASK_DEF_ARN: ${{ steps.render-task-def.outputs.task-definition-arn }}
+      #  run: |
+      #    set -e
+      #    echo "Updating service $ECS_SERVICE_NAME in cluster $ECS_CLUSTER_NAME..."
+      #    aws ecs update-service \
+      #      --cluster $ECS_CLUSTER_NAME \
+      #      --service $ECS_SERVICE_NAME \
+      #      --task-definition $NEW_TASK_DEF_ARN \
+      #      --force-new-deployment
+      #
+      ## 6. 배포 완료 대기
+      #- name: Wait for deployment stabilization
+      #  env:
+      #    ECS_CLUSTER_NAME: ${{ inputs.ecs_cluster_name }}
+      #    ECS_SERVICE_NAME: ${{ inputs.ecs_service_name }}
+      #  run: |
+      #    set -e
+      #    echo "Waiting for service $ECS_SERVICE_NAME to become stable..."
+      #    aws ecs wait services-stable --cluster $ECS_CLUSTER_NAME --services $ECS_SERVICE_NAME
+      #    echo "Service $ECS_SERVICE_NAME is stable."
