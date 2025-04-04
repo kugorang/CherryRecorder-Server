@@ -117,7 +117,7 @@ jobs:
           # 먼저 GitHub 표현식을 변수에 할당
           REPO_NAME=${{ github.repository }}
           # 그 다음 Bash에서 소문자 변환
-          REPO_NAME_LOWERCASE="${REPO_NAME,,}"
+          REPO_NAME_LOWERCASE=$(echo $REPO_NAME | tr '[:upper:]' '[:lower:]')
           # /build-cache 대신 -build-cache 사용
           GHCR_IMAGE="ghcr.io/${REPO_NAME_LOWERCASE}-build-cache:$IMAGE_TAG"
 
