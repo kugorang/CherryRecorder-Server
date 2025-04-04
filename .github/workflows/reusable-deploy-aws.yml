@@ -10,7 +10,7 @@ on:
       image_name_ecr: { required: true, type: string }
       image_tag: { required: true, type: string } # 배포할 고유 태그 (SHA)
       container_name: { required: true, type: string }
-      server_port_value: { required: false, type: number, default: 8080 }
+      server_port_value: { required: true, type: string, default: "8080" }
       task_definition_template_path: { required: true, type: string }
       ecs_cluster_name: { required: true, type: string }
       ecs_service_name: { required: true, type: string }
@@ -45,40 +45,56 @@ jobs:
           aws-region: ${{ inputs.aws_region }}
           role-session-name: GitHubActions-Deploy-${{ github.run_id }}
 
+      # - name: Render task definition template
+      #   run: |
+      #     sed -e "s|\$FAMILY|${FAMILY}|g" \
+      #         -e "s|\$EXECUTION_ROLE_ARN|${EXECUTION_ROLE_ARN}|g" \
+      #         -e "s|\$CONTAINER_NAME|${CONTAINER_NAME}|g" \
+      #         -e "s|\$SERVER_PORT_VALUE|${SERVER_PORT_VALUE}|g" \
+      #         -e "s|\$AWS_REGION|${AWS_REGION}|g" \
+      #         .github/task-definition.json.template > rendered.json
+      #   env:
+      #     FAMILY: ${{ vars.ECS_TASK_DEF_FAMILY }}
+      #     EXECUTION_ROLE_ARN: ${{ secrets.task_execution_role_arn }}
+      #     CONTAINER_NAME: ${{ inputs.container_name }}
+      #     SERVER_PORT_VALUE: ${{ inputs.server_port_value }}
+      #     AWS_REGION: ${{ inputs.aws_region }}
+
+      # - name: Validate rendered task definition
+      #   run: jq . rendered.json
+
+      # - name: Render and Register Amazon ECS Task Definition
+      #   id: render-image
+      #   uses: aws-actions/amazon-ecs-render-task-definition@v1
+      #   with:
+      #     작업 정의 템플릿 파일 경로
+      #     task-definition: rendered.json
+      #     업데이트할 컨테이너 이름
+      #     container-name: ${{ inputs.container_name }}
+      #     사용할 도커 이미지 URI
+      #     image: ${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}
+
       - name: Render task definition template
         run: |
-          sed -e "s|\$FAMILY|${FAMILY}|g" \
-              -e "s|\$EXECUTION_ROLE_ARN|${EXECUTION_ROLE_ARN}|g" \
-              -e "s|\$CONTAINER_NAME|${CONTAINER_NAME}|g" \
-              -e "s|\$SERVER_PORT_VALUE|${SERVER_PORT_VALUE}|g" \
-              -e "s|\$AWS_REGION|${AWS_REGION}|g" \
-              .github/task-definition.json.template > rendered.json
-        env:
-          FAMILY: ${{ vars.ECS_TASK_DEF_FAMILY }}
-          EXECUTION_ROLE_ARN: ${{ secrets.task_execution_role_arn }}
-          CONTAINER_NAME: ${{ inputs.container_name }}
-          SERVER_PORT_VALUE: ${{ inputs.server_port_value }}
-          AWS_REGION: ${{ inputs.aws_region }}
+          jq --argjson server_port_value "${{ inputs.server_port_value }}" \
+             '.containerDefinitions[0].portMappings[0].containerPort = $server_port_value' \
+             ${{ inputs.task_definition_template_path }} > rendered.json
 
-      - name: Validate rendered task definition
-        run: jq . rendered.json
-
-      - name: Render and Register Amazon ECS Task Definition
-        id: render-image
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          # 작업 정의 템플릿 파일 경로
-          task-definition: rendered.json
-          # 업데이트할 컨테이너 이름
-          container-name: ${{ inputs.container_name }}
-          # 사용할 도커 이미지 URI
-          image: ${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}
+      # - name: Register task definition
+      #   id: register-task
+      #   run: |
+      #     TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json file://${{ steps.render-image.outputs.task-definition }} --query 'taskDefinition.taskDefinitionArn' --output text)
+      #     echo "task_def_arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
 
       - name: Register task definition
         id: register-task
         run: |
-          TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json file://${{ steps.render-image.outputs.task-definition }} --query 'taskDefinition.taskDefinitionArn' --output text)
+          TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json file://rendered.json --query 'taskDefinition.taskDefinitionArn' --output text)
           echo "task_def_arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
+
+      # - name: Update ECS service
+      #   run: |
+      #     aws ecs update-service --cluster ${{ inputs.ecs_cluster_name }} --service ${{ inputs.ecs_service_name }} --task-definition ${{ steps.register-task.outputs.task_def_arn }}
 
       - name: Update ECS service
         run: |
