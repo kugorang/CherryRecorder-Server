@@ -74,11 +74,17 @@ jobs:
           # 사용할 도커 이미지 URI
           image: ${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}
 
+      - name: Render task definition template
+        run: |
+          jq --argjson server_port_value "${{ inputs.server_port_value }}" \
+          '.containerDefinitions[0].portMappings[0].containerPort = $server_port_value' \
+          task-definition-template.json > rendered.json
+
       - name: Register task definition
         id: register-task
         run: |
-          TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json file://${{ steps.render-image.outputs.task-definition }} --query 'taskDefinition.taskDefinitionArn' --output text)
-          echo "task_def_arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
+            TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json file://rendered.json --query 'taskDefinition.taskDefinitionArn' --output text)
+            echo "task_def_arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
 
       - name: Update ECS service
         run: |
