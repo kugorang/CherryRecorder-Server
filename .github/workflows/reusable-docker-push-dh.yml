@@ -5,7 +5,7 @@ name: Reusable - Push Docker Image to Docker Hub
 on:
   workflow_call:
     inputs:
-      image_name_dh: { required: true, type: string }
+      dockerhub_repo_name: { required: true, type: string }
       image_tag_sha: { required: true, type: string }
       image_tag_latest: { required: true, type: string }
       ghcr_image_uri: { required: true, type: string }
@@ -45,11 +45,12 @@ jobs:
       # 2. Docker 이미지 푸시 (두 태그 모두)
       - name: Push Docker image to Docker Hub
         env:
-          DH_IMAGE_NAME: ${{ inputs.image_name_dh }}
           IMAGE_TAG_SHA: ${{ inputs.image_tag_sha }}
           IMAGE_TAG_LATEST: ${{ inputs.image_tag_latest }}
           GHCR_IMAGE: ${{ inputs.ghcr_image_uri }}
         run: |
+          DH_IMAGE_NAME="${{ secrets.dockerhub_username }}/${{ inputs.dockerhub_repo_name }}"
+          
           set -e # 명령어 실패 시 중단
           docker tag $GHCR_IMAGE $DH_IMAGE_NAME:$IMAGE_TAG_SHA
           docker tag $GHCR_IMAGE $DH_IMAGE_NAME:$IMAGE_TAG_LATEST

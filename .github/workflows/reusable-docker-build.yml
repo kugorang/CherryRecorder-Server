@@ -19,7 +19,7 @@ on:
         required: true
         type: string
       dockerhub_repo:
-        description: 'Docker Hub repository name (e.g., user/repo)'
+        description: 'Docker Hub repository name (e.g., repo, NOT user/repo)'
         required: true
         type: string
     # 출력값: 생성된 이미지의 전체 이름과 태그
@@ -27,9 +27,9 @@ on:
       image_name_ecr:
         description: 'Full image name for ECR (without tags)'
         value: ${{ jobs.build_image_job.outputs.ecr_image_name_no_tag }}
-      image_name_dh:
-        description: 'Full image name for Docker Hub (without tags)'
-        value: ${{ jobs.build_image_job.outputs.dh_image_name_no_tag }}
+      dh_repo_name:
+        description: 'Docker Hub repository name (without username)'
+        value: ${{ jobs.build_image_job.outputs.dh_repo_name_output }}
       image_tag_sha:
         description: 'Image tag based on Git SHA'
         value: ${{ jobs.build_image_job.outputs.tag_sha }}
@@ -38,12 +38,6 @@ on:
         value: 'latest'
       ghcr_image_uri:
         value: ${{ jobs.build_image_job.outputs.ghcr_uri }}
-
-    # 비밀값: Docker Hub 사용자 이름 (태그 지정 시 필요)
-    secrets:
-      dockerhub_username:
-        description: 'Docker Hub Username'
-        required: true
 
 jobs:
   build_image_job:
@@ -55,7 +49,7 @@ jobs:
       contents: read
     outputs:
       ecr_image_name_no_tag: ${{ steps.set-names.outputs.ecr_name }}
-      dh_image_name_no_tag: ${{ steps.set-names.outputs.dh_name }}
+      dh_repo_name_output: ${{ steps.set-names.outputs.dh_repo }}
       tag_sha: ${{ steps.tag-image.outputs.tag }}
       ghcr_uri: ${{ steps.push-ghcr.outputs.image_uri }}
 
@@ -77,28 +71,24 @@ jobs:
           AWS_ACCOUNT_ID: ${{ inputs.aws_account_id }}
           AWS_REGION: ${{ inputs.aws_region }}
           ECR_REPO: ${{ inputs.ecr_repo }}
-          DH_USER: ${{ secrets.dockerhub_username }}
           DH_REPO: ${{ inputs.dockerhub_repo }}
         run: |
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           echo "ecr_name=$ECR_REGISTRY/$ECR_REPO" >> $GITHUB_OUTPUT
-          echo "dh_name=$DH_USER/$DH_REPO" >> $GITHUB_OUTPUT
+          echo "dh_repo=$DH_REPO" >> $GITHUB_OUTPUT # <<< 리포지토리 이름만 출력
 
       # 4. Docker 이미지 빌드 및 태그 동시 지정
       - name: Build and tag Docker image
         env:
           # 이전 단계 출력값 사용
           ECR_IMAGE_NAME: ${{ steps.set-names.outputs.ecr_name }}
-          DH_IMAGE_NAME: ${{ steps.set-names.outputs.dh_name }}
           IMAGE_TAG: ${{ steps.tag-image.outputs.tag }}
           DOCKER_BUILDKIT: 1
         # 빌드 시 필요한 모든 태그를 한 번에 지정
         run: |
           docker build . \
             --tag $ECR_IMAGE_NAME:$IMAGE_TAG \
-            --tag $ECR_IMAGE_NAME:latest \
-            --tag $DH_IMAGE_NAME:$IMAGE_TAG \
-            --tag $DH_IMAGE_NAME:latest
+            --tag $ECR_IMAGE_NAME:latest
 
       # GHCR 로그인 및 푸시 단계 추가
       - name: Log in to GitHub Container Registry

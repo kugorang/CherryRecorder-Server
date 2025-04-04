@@ -85,12 +85,6 @@ jobs:
       aws_account_id: ${{ vars.AWS_ACCOUNT_ID }} # ECR 주소 구성에 필요 시
       ecr_repo: ${{ vars.AWS_ECR_REPOSITORY }}
       dockerhub_repo: ${{ vars.DOCKERHUB_REPO }}
-      # 또는 직접 값 지정
-      # ecr_repo: 'cherryrecorder-server'
-      # dockerhub_repo: 'my-dockerhub-id/cherryrecorder-server'
-    # 재사용 워크플로우에 필요한 시크릿 전달
-    secrets:
-      dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
 
   # --- 5. Docker Hub 푸시 ---
   # Docker 이미지 빌드가 완료되면 Docker Hub로 푸시합니다.
@@ -103,7 +97,7 @@ jobs:
       packages: read
     with:
       # Job 4의 출력값(이미지 이름 및 태그)을 입력으로 전달
-      image_name_dh: ${{ needs.call_docker_build.outputs.image_name_dh }}
+      dockerhub_repo_name: ${{ needs.call_docker_build.outputs.dh_repo_name }}
       image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
       image_tag_latest: ${{ needs.call_docker_build.outputs.image_tag_latest }}
       ghcr_image_uri: ${{ needs.call_docker_build.outputs.ghcr_image_uri }}
