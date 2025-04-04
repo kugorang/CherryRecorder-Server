@@ -64,7 +64,7 @@ jobs:
       # 3. 태스크 정의 템플릿 렌더링 (jq 사용)
       - name: Render task definition template
         run: |
-          jq --argjson server_port_value "${{ inputs.server_port_value }}" \
+          jq --arg server_port_value "${{ inputs.server_port_value }}" \
              --arg image "${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}" \
              --arg family "${{ vars.ECS_TASK_DEF_FAMILY }}" \
              --arg execution_role_arn "${{ secrets.task_execution_role_arn }}" \
@@ -75,7 +75,7 @@ jobs:
               | .executionRoleArn = $execution_role_arn
               | .containerDefinitions[0].name = $container_name
               | .containerDefinitions[0].image = $image
-              | .containerDefinitions[0].portMappings[0].containerPort = $server_port_value
+              | .containerDefinitions[0].portMappings[0].containerPort = ($server_port_value | tonumber)
               | .containerDefinitions[0].environment[0].value = $server_port_value
               | .containerDefinitions[0].logConfiguration.options."awslogs-group" = "/ecs/" + $family
               | .containerDefinitions[0].logConfiguration.options."awslogs-region" = $aws_region
