@@ -64,7 +64,7 @@ jobs:
         run: jq . rendered.json
 
       - name: Render and Register Amazon ECS Task Definition
-        id: render-task-def # 스텝 ID 부여 (출력 참조용)
+        id: render-image
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
           # 작업 정의 템플릿 파일 경로
