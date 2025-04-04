@@ -67,6 +67,11 @@ jobs:
             SERVER_PORT_VALUE=${{ inputs.server_port_value }}
             AWS_REGION=${{ inputs.aws_region }}
 
+          run: |
+            sed "s/\$EXECUTION_ROLE_ARN/${EXECUTION_ROLE_ARN}/g" .github/task-definition.json.template > rendered.json
+            cat rendered.json
+            # JSON이 잘 생성되는지 확인
+
       # 5. ECS 서비스 업데이트
       - name: Update ECS Service
         env:
