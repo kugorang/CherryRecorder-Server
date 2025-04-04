@@ -31,11 +31,10 @@ jobs:
       - name: Pull image from GHCR
         run: |
           # 먼저 GitHub 표현식을 변수에 할당
-          REPO_NAME=${{ github.repository }}
-          # 그 다음 Bash에서 소문자 변환
-          REPO_NAME_LOWERCASE=$(echo $REPO_NAME | tr '[:upper:]' '[:lower:]' | tr '/' '-')
-
-          GHCR_IMAGE="ghcr.io/${REPO_NAME_LOWERCASE}-build-cache:$IMAGE_TAG"
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          REPO_NAME=$(echo "${{ github.repository }}" | cut -d '/' -f 2 | tr '[:upper:]' '[:lower:]')
+          # GHCR 이미지 이름 형식 준수
+          GHCR_IMAGE="ghcr.io/${REPO_OWNER}/${REPO_NAME}-build-cache:$IMAGE_TAG"
           echo "Using image: $GHCR_IMAGE"
           docker pull $GHCR_IMAGE
 
