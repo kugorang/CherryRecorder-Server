@@ -6,17 +6,13 @@ on:
   workflow_call:
     inputs:
       # Docker Hub 리포지토리 전체 이름 (예: username/reponame)
-      dockerhub_repo_full_name:
+      dockerhub_repo_name:
         required: true
         type: string
       image_tag_sha: { required: true, type: string }
       image_tag_latest: { required: true, type: string }
-      local_image_tag_built: # 빌드된 로컬 이미지 태그
-        required: true
-        type: string
-      image_digest_built:   # 빌드된 이미지 다이제스트
-        required: true
-        type: string
+      local_image_tag_built: { required: true, type: string }
+      image_digest_built: { required: true, type: string }
     secrets:
       # Docker Hub 로그인 정보
       dockerhub_username: { required: true }
@@ -26,9 +22,6 @@ jobs:
   push_dh_job:
     name: Check Digest and Push to Docker Hub
     runs-on: ubuntu-latest
-    permissions:
-      contents: read # 필요 시
-
     steps:
       # 1. Docker Hub 로그인
       - name: Log in to Docker Hub
@@ -41,8 +34,10 @@ jobs:
       - name: Get Docker Hub :latest image digest
         id: get-latest-digest-dh
         run: |
-          DH_IMAGE_LATEST="${{ inputs.dockerhub_repo_full_name }}:latest"
-          # manifest inspect는 이미지가 없으면 오류 발생, || true로 오류 무시하고 결과 저장
+          DH_USER_LC=$(echo "${{ secrets.dockerhub_username }}" | tr '[:upper:]' '[:lower:]')
+          DH_REPO_LC=$(echo "${{ inputs.dockerhub_repo_name }}" | tr '[:upper:]' '[:lower:]')
+          DH_IMAGE_LATEST="${DH_USER_LC}/${DH_REPO_LC}:latest"
+          echo "Checking digest for Docker Hub image: $DH_IMAGE_LATEST"
           LATEST_DIGEST=$(docker manifest inspect $DH_IMAGE_LATEST --verbose 2>/dev/null | jq -r '.Descriptor.digest // ""' || echo "")
           echo "Current :latest digest in Docker Hub: $LATEST_DIGEST"
           echo "latest_digest=$LATEST_DIGEST" >> $GITHUB_OUTPUT
@@ -69,7 +64,9 @@ jobs:
       - name: Tag and Push image to Docker Hub
         if: steps.check-push-dh.outputs.push_required == 'true'
         env:
-          DH_IMAGE_BASE: ${{ inputs.dockerhub_repo_full_name }}
+          DH_USER_LC: $(echo "${{ secrets.dockerhub_username }}" | tr '[:upper:]' '[:lower:]')
+          DH_REPO_LC: $(echo "${{ inputs.dockerhub_repo_name }}" | tr '[:upper:]' '[:lower:]')
+          DH_IMAGE_BASE: "${DH_USER_LC}/${DH_REPO_LC}"
           TAG_SHA: ${{ inputs.image_tag_sha }}
           TAG_LATEST: ${{ inputs.image_tag_latest }}
           LOCAL_IMAGE: ${{ inputs.local_image_tag_built }}

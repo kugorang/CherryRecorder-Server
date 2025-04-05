@@ -137,16 +137,16 @@ jobs:
 
   # --- 5. Docker Hub 푸시 ---
   call_push_dh:
-    name: 5. Push Image to Docker Hub
+    name: 5. Push Image to Docker Hub (If Changed)
     if: needs.call_docker_build.result == 'success' # 빌드 성공 시에만 실행 (선택적)
     uses: ./.github/workflows/reusable-docker-push-dh.yml
     needs: call_docker_build
     permissions:
       packages: read
     with:
-      dh_repo_name: ${{ needs.call_docker_build.outputs.dh_repo_name }}
+      dockerhub_repo_name: ${{ needs.call_docker_build.outputs.dh_repo_name_output }}
       image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
-      image_tag_latest: ${{ needs.call_docker_build.outputs.image_tag_latest }}
+      image_tag_latest: 'latest'
       local_image_tag_built: ${{ needs.call_docker_build.outputs.local_image_tag }}
       image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }}
     secrets:
