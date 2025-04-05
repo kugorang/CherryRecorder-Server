@@ -89,8 +89,8 @@ jobs:
       # 3. 태스크 정의 템플릿 렌더링 (jq 사용)
       - name: Render task definition template
         run: |
-          jq --arg health_port "${{ inputs.health_check_port_value }}" \
-             --arg echo_port "${{ inputs.echo_server_port_value }}" \
+          jq --argjson health_port "${{ inputs.health_check_port_value }}" \
+             --argjson echo_port "${{ inputs.echo_server_port_value }}" \
              --arg image "${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}" \
              --arg family "${{ inputs.ecs_task_def_family }}" \
              --arg execution_role_arn "${{ secrets.task_execution_role_arn }}" \
