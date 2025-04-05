@@ -6,7 +6,8 @@
   "containerDefinitions": [
     {
       "name": "$CONTAINER_NAME",
-      "memory": 512,
+      "image": "placeholder",
+      "memoryReservation": 512,
       "essential": true,
       "portMappings": [
         {
@@ -39,6 +40,16 @@
           "awslogs-region": "$AWS_REGION",
           "awslogs-stream-prefix": "ecs"
         }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:$HEALTH_CHECK_PORT_VALUE/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
       }
     }
   ]

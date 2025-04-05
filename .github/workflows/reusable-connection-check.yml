@@ -1,46 +1,114 @@
 # .github/workflows/reusable-connection-check.yml
-# 목적: 배포된 서버의 주소와 포트로 네트워크 연결을 시도합니다.
-name: Reusable - Connection Check
+# 목적: 배포된 서버의 HTTP 및 TCP 포트 연결 상태를 확인합니다.
+#      (HTTP: /health 경로 2xx 응답 확인, TCP: 포트 연결 확인)
+name: Reusable - Connection Check (HTTP & TCP)
 
 on:
   workflow_call:
-    # 입력값 대신 비밀값으로 받음 (호출자가 secrets 블록으로 전달)
-    secrets:
+    # 입력값 정의 (secrets 대신 inputs 사용 권장)
+    inputs:
       server_address:
-        description: 'Address (ALB DNS or IP) of the deployed server'
+        description: '배포된 서버의 주소 (NLB DNS 이름 또는 IP)'
         required: true
-      server_port:
-        description: 'Port number of the deployed server'
+        type: string
+      health_check_port:
+        description: 'HTTP Health Check 포트 번호'
         required: true
+        type: string
+        default: "8080" # 기본값 설정
+      echo_server_port:
+        description: 'TCP Echo 서버 포트 번호'
+        required: true
+        type: string
+        default: "33333" # 기본값 설정
+      # 재시도 및 타임아웃 설정 (선택적)
+      max_attempts:
+        description: '최대 연결 시도 횟수'
+        required: false
+        type: string
+        default: '6' # 서비스 시작 시간 등을 고려하여 약간 늘림
+      retry_delay_seconds:
+        description: '재시도 간 지연 시간 (초)'
+        required: false
+        type: string
+        default: '10'
+      connect_timeout_seconds:
+        description: '각 연결 시도 타임아웃 (초)'
+        required: false
+        type: string
+        default: '5'
 
 jobs:
   check_job:
-    name: Check Connection to Server
+    name: Check Connection to Server Ports
     runs-on: ubuntu-latest
     steps:
-      # 1. netcat 설치
-      - name: Install netcat
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends netcat-openbsd && sudo rm -rf /var/lib/apt/lists/*
-
-      # 2. 연결 시도 (재시도 로직 포함)
-      - name: Attempt connection using netcat
-        env:
-          # 비밀값을 환경 변수로 사용
-          SERVER_ADDRESS: ${{ secrets.server_address }}
-          SERVER_PORT: ${{ secrets.server_port }}
+      # 1. 필요한 도구 설치 (netcat, curl)
+      - name: Install netcat and curl
         run: |
-          set -e # 루프 내 성공 시 exit 0 하므로, 루프 후 실패 시 exit 1 되도록 함
-          echo "Attempting to connect to $SERVER_ADDRESS on port $SERVER_PORT..."
-          for i in {1..5}; do
-            # nc -zvw 5 : 5초 타임아웃, 상세 출력, 스캔 모드
-            if nc -z -v -w 5 $SERVER_ADDRESS $SERVER_PORT; then
-              echo "Connection successful!"
-              exit 0 # 성공!
+          sudo apt-get update && \
+          sudo apt-get install -y --no-install-recommends netcat-openbsd curl && \
+          sudo rm -rf /var/lib/apt/lists/*
+        shell: bash
+
+      # 2. HTTP Health Endpoint 확인 (${{ inputs.health_check_port }})
+      #    - /health 경로에 요청을 보내 2xx 응답 코드를 받는지 확인
+      - name: Check HTTP Health Endpoint (${{ inputs.health_check_port }})
+        env:
+          SERVER_ADDRESS: ${{ inputs.server_address }}
+          HEALTH_PORT: ${{ inputs.health_check_port }}
+          MAX_ATTEMPTS: ${{ inputs.max_attempts }}
+          RETRY_DELAY: ${{ inputs.retry_delay_seconds }}
+          TIMEOUT: ${{ inputs.connect_timeout_seconds }}
+        run: |
+          echo "Attempting check: curl http://$SERVER_ADDRESS:$HEALTH_PORT/health ..."
+          URL="http://$SERVER_ADDRESS:$HEALTH_PORT/health"
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            # curl 옵션:
+            # --fail (-f): HTTP 상태 코드가 4xx 또는 5xx일 경우 자동으로 실패(exit code 22) 처리. 2xx/3xx는 성공 간주.
+            # --silent (-s): 진행률 미터 숨김.
+            # --show-error (-S): --silent 사용 시에도 오류 메시지는 표시.
+            # --output /dev/null (-o): 응답 본문은 출력하지 않음 (상태 코드만 중요).
+            # --max-time (-m): 전체 요청에 대한 최대 시간 제한(초).
+            if curl -fsS -m $TIMEOUT "$URL" -o /dev/null; then
+              echo "HTTP Health check SUCCESS (received 2xx status)!"
+              exit 0 # 성공
             fi
-            if [ $i -lt 5 ]; then
-              echo "Connection attempt $i failed. Retrying in 10 seconds..."
-              sleep 10
+            # curl 실패 시 종료 코드 확인 (선택적 상세 로깅)
+            CURL_EXIT_CODE=$?
+            echo "curl exit code: $CURL_EXIT_CODE"
+            if [ $i -lt $MAX_ATTEMPTS ]; then
+              echo "HTTP Health check attempt $i failed. Retrying in $RETRY_DELAY seconds..."
+              sleep $RETRY_DELAY
             fi
           done
-          echo "Connection failed after multiple attempts!"
+          echo "HTTP Health check FAILED after $MAX_ATTEMPTS attempts! Could not reach $URL or received non-2xx/3xx status."
           exit 1 # 최종 실패
+        shell: bash
+
+      # 3. TCP Echo 포트 확인 (${{ inputs.echo_server_port }})
+      #    - TCP 포트 연결이 수립되는지 확인
+      - name: Check TCP Echo Port (${{ inputs.echo_server_port }})
+        env:
+          SERVER_ADDRESS: ${{ inputs.server_address }}
+          ECHO_PORT: ${{ inputs.echo_server_port }}
+          MAX_ATTEMPTS: ${{ inputs.max_attempts }}
+          RETRY_DELAY: ${{ inputs.retry_delay_seconds }}
+          TIMEOUT: ${{ inputs.connect_timeout_seconds }}
+        run: |
+          echo "Attempting check: nc -z -w $TIMEOUT $SERVER_ADDRESS $ECHO_PORT ..."
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            # nc 옵션: -z (스캔 모드), -v (상세 정보 - stderr로 출력됨), -w (타임아웃 초)
+            # nc는 성공 시 exit code 0, 실패 시 0이 아닌 코드를 반환한다.
+            if nc -z -w $TIMEOUT $SERVER_ADDRESS $ECHO_PORT; then
+              echo "TCP Echo port connection SUCCESS!"
+              exit 0 # 성공
+            fi
+            if [ $i -lt $MAX_ATTEMPTS ]; then
+              echo "TCP Echo port attempt $i failed. Retrying in $RETRY_DELAY seconds..."
+              sleep $RETRY_DELAY
+            fi
+          done
+          echo "TCP Echo port connection FAILED after $MAX_ATTEMPTS attempts!"
+          exit 1 # 최종 실패
+        shell: bash
