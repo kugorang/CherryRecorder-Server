@@ -12,18 +12,27 @@
       "essential": true,
       "portMappings": [
         {
-          "containerPort": "$SERVER_PORT_VALUE",
+          "containerPort": "$HEALTH_CHECK_PORT_VALUE",
           "hostPort": 0,
-          "protocol": "tcp"
+          "protocol": "tcp",
+          "name": "http-health"
+        },
+        {
+          "containerPort": "$ECHO_SERVER_PORT_VALUE",
+          "hostPort": 0,
+          "protocol": "tcp",
+          "name": "tcp-echo"
         }
       ],
       "environment": [
         {
-          "name": "SERVER_PORT",
-          "value": "$SERVER_PORT_VALUE"
+          "name": "HEALTH_CHECK_PORT",
+          "value": "$HEALTH_CHECK_PORT_VALUE"
+        },
+        {
+          "name": "ECHO_SERVER_PORT",
+          "value": "$ECHO_SERVER_PORT_VALUE"
         }
-      ],
-      "secrets": [
       ],
       "logConfiguration": {
         "logDriver": "awslogs",

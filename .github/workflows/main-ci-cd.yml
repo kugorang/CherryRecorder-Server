@@ -147,12 +147,12 @@ jobs:
       ecs_cluster_name: ${{ vars.ECS_CLUSTER_NAME }}
       ecs_service_name: ${{ vars.ECS_SERVICE_NAME }}
       container_name: ${{ vars.CONTAINER_NAME }}
+      ecs_task_def_family: ${{ vars.ECS_TASK_DEF_FAMILY }}
       # Task Definition 템플릿 파일 경로
       task_definition_template_path: .github/task-definition.json.template
       # Task Definition 템플릿에 필요한 추가 환경 변수 전달
-      server_port_value: ${{ vars.SERVER_PORT_VALUE }}
-      # db_host: ${{ vars.DB_HOST }}
-      # db_user: ${{ vars.DB_USER }}
+      health_check_port_value: ${{ vars.HEALTH_CHECK_PORT_VALUE }}
+      echo_server_port_value: ${{ vars.ECHO_SERVER_PORT_VALUE }}
     secrets:
       # AWS OIDC 역할 ARN
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
