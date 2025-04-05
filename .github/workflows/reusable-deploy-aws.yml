@@ -19,10 +19,31 @@ on:
       container_name:
         required: true
         type: string
-      server_port_value:
+      health_check_port_value: # 변수명 변경 (기존 server_port_value 대체)
         required: true
         type: string
         default: "8080"
+        description: HTTP Health Check 서버가 사용할 컨테이너 포트
+      echo_server_port_value:  # TCP Echo 서버 포트 입력 추가
+        required: true
+        type: string
+        default: "33333"
+        description: TCP Echo 서버가 사용할 컨테이너 포트
+      health_check_ip:
+        description: 'HTTP 서버가 컨테이너 내부에서 바인딩할 IP/호스트명'
+        required: false # false로 하면 기본값 사용
+        type: string
+        default: '0.0.0.0' # 컨테이너 내부에서는 보통 0.0.0.0 사용
+      http_threads:
+        description: 'HTTP 서버가 사용할 스레드 수 (0 이하는 코어 수)'
+        required: false
+        type: string
+        default: '4' # jq --arg 로 받으려면 문자열이 편함
+      doc_root:
+        description: '정적 파일 문서 루트 (필요 시)'
+        required: false
+        type: string
+        default: '.'
       task_definition_template_path:
         required: true
         type: string
@@ -32,6 +53,10 @@ on:
       ecs_service_name:
         required: true
         type: string
+      ecs_task_def_family:
+        required: true
+        type: string
+        description: ECS 태스크 정의 패밀리 이름
     # 비밀값 정의
     secrets:
       aws_role_to_assume:
@@ -45,8 +70,8 @@ jobs:
     runs-on: ubuntu-latest
     # OIDC 인증 및 템플릿 파일 읽기 권한
     permissions:
-      id-token: write
-      contents: read
+      id-token: write # OIDC 인증 위해 필요
+      contents: read  # 템플릿 파일 읽기 위해 필요
 
     steps:
       # 1. 소스 코드 체크아웃 (템플릿 파일 접근 위해)
@@ -64,31 +89,50 @@ jobs:
       # 3. 태스크 정의 템플릿 렌더링 (jq 사용)
       - name: Render task definition template
         run: |
-          jq --arg server_port_value "${{ inputs.server_port_value }}" \
+          jq --arg health_port "${{ inputs.health_check_port_value }}" \
+             --arg echo_port "${{ inputs.echo_server_port_value }}" \
              --arg image "${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}" \
-             --arg family "${{ vars.ECS_TASK_DEF_FAMILY }}" \
+             --arg family "${{ inputs.ecs_task_def_family }}" \
              --arg execution_role_arn "${{ secrets.task_execution_role_arn }}" \
              --arg container_name "${{ inputs.container_name }}" \
              --arg aws_region "${{ inputs.aws_region }}" \
+             --arg health_ip "${{ inputs.health_check_ip }}" \
+             --arg http_thr "${{ inputs.http_threads }}" \
+             --arg doc_rt "${{ inputs.doc_root }}" \
              '.
               | .family = $family
               | .executionRoleArn = $execution_role_arn
               | .containerDefinitions[0].name = $container_name
               | .containerDefinitions[0].image = $image
-              | .containerDefinitions[0].portMappings[0].containerPort = ($server_port_value | tonumber)
-              | .containerDefinitions[0].environment[0].value = $server_port_value
+              | .containerDefinitions[0].portMappings = [
+                 { "containerPort": $health_port, "hostPort": 0, "protocol": "tcp", "name": "http-health" },
+                 { "containerPort": $echo_port,   "hostPort": 0, "protocol": "tcp", "name": "tcp-echo" }
+               ]
+              | .containerDefinitions[0].environment = [
+                 { "name": "HEALTH_CHECK_PORT", "value": ($health_port | tostring) },
+                 { "name": "ECHO_SERVER_PORT",  "value": ($echo_port | tostring) },
+                 { "name": "HEALTH_CHECK_IP",   "value": $health_ip },
+                 { "name": "HTTP_THREADS",      "value": $http_thr },
+                 { "name": "DOC_ROOT",          "value": $doc_rt }
+               ]
               | .containerDefinitions[0].logConfiguration.options."awslogs-group" = "/ecs/" + $family
               | .containerDefinitions[0].logConfiguration.options."awslogs-region" = $aws_region
              ' ${{ inputs.task_definition_template_path }} > rendered.json
+
+          echo "Rendered Task Definition:"
+          cat rendered.json # 렌더링 결과 확인용 로그
 
       # 4. 태스크 정의 등록
       - name: Register task definition
         id: register-task
         run: |
           TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json file://rendered.json --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "Registered task definition ARN: $TASK_DEF_ARN"
           echo "task_def_arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
 
       # 5. ECS 서비스 업데이트
       - name: Update ECS service
         run: |
-          aws ecs update-service --cluster ${{ inputs.ecs_cluster_name }} --service ${{ inputs.ecs_service_name }} --task-definition ${{ steps.register-task.outputs.task_def_arn }}
+          echo "Updating service ${{ inputs.ecs_service_name }} in cluster ${{ inputs.ecs_cluster_name }} with task definition ${{ steps.register-task.outputs.task_def_arn }}"
+          aws ecs update-service --cluster ${{ inputs.ecs_cluster_name }} --service ${{ inputs.ecs_service_name }} --task-definition ${{ steps.register-task.outputs.task_def_arn }} --force-new-deployment
+          echo "Service update initiated."
