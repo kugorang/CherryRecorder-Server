@@ -23,6 +23,18 @@ public:
 	 */
 	explicit Session(boost::asio::ip::tcp::socket socket)
 		: socket_(std::move(socket)) {
+		try {
+			fprintf(stdout, "[Session %p] Created for endpoint %s:%d\n",
+				this,
+				socket_.remote_endpoint().address().to_string().c_str(),
+				socket_.remote_endpoint().port());
+		}
+		catch (...) { /* remote_endpoint() 실패 가능성 */ }
+	}
+
+	// 세션 소멸자 추가 (종료 확인용)
+	~Session() {
+		fprintf(stdout, "[Session %p] Destroyed.\n", this);
 	}
 
 	/**
@@ -38,10 +50,40 @@ private:
 	 */
 	void doRead() {
 		auto self = shared_from_this();
+		fprintf(stdout, "[Session %p] Waiting to read...\n", this);
 		socket_.async_read_some(boost::asio::buffer(data_),
 			[this, self](boost::system::error_code ec, std::size_t length) {
 				if (!ec) {
+					fprintf(stdout, "[Session %p] Read successful: %zu bytes.\n", this, length);
+
+					// --- 로그 추가 시작 ---
+					if (length > 0 && length < sizeof(data_)) { // 버퍼 범위 확인
+						fprintf(stdout, "[Session %p] Received data (hex):", this);
+						for (size_t i = 0; i < length; ++i) {
+							// 수신된 데이터를 16진수로 출력
+							fprintf(stdout, " %02X", static_cast<unsigned char>(data_[i]));
+						}
+						fprintf(stdout, "\n");
+
+						// 만약 1바이트이고 출력 가능한 문자라면 문자로도 출력 (디버깅 편의)
+						if (length == 1 && isprint(data_[0])) {
+							fprintf(stdout, "[Session %p] Received char: '%c'\n", this, data_[0]);
+						}
+					}
+					// --- 로그 추가 끝 ---
+
+					if (length == 0) {
+						fprintf(stdout, "[Session %p] Received 0 bytes. Writing 0 bytes back.\n", this);
+					}
 					doWrite(length);
+				}
+				else {
+					fprintf(stderr, "[Session %p] Read error: %s (%d).\n", this, ec.message().c_str(), ec.value());
+					// 오류 발생 시 세션 종료됨 (별도 close 호출 불필요)
+					// 만약 EOF 오류 시 정상 종료 로그를 남기고 싶다면:
+					if (ec == boost::asio::error::eof) {
+						fprintf(stdout, "[Session %p] Connection closed by peer (EOF).\n", this);
+					}
 				}
 			}
 		);
@@ -53,12 +95,17 @@ private:
 	 */
 	void doWrite(std::size_t length) {
 		auto self = shared_from_this();
+		fprintf(stdout, "[Session %p] Writing %zu bytes...\n", this, length);
 		boost::asio::async_write(socket_,
 			boost::asio::buffer(data_, length),
-			[this, self](boost::system::error_code ec, std::size_t /*bytes_sent*/) {
+			[this, self](boost::system::error_code ec, std::size_t bytes_sent) {
 				if (!ec) {
-					// 전송이 끝나면 다시 읽기 대기
-					doRead();
+					fprintf(stdout, "[Session %p] Write successful: %zu bytes.\n", this, bytes_sent);
+					doRead(); // 다음 읽기 대기
+				}
+				else {
+					fprintf(stderr, "[Session %p] Write error: %s (%d).\n", this, ec.message().c_str(), ec.value());
+					// 오류 발생 시 세션 종료됨 (별도 close 호출 불필요)
 				}
 			}
 		);

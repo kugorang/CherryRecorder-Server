@@ -63,20 +63,27 @@ endif()
 # 라이브러리 타겟 정의 (CherryRecorder-Server)
 # ----------------------------------------------------------------------
 # 애플리케이션 핵심 로직을 포함하는 정적 라이브러리(기본값)를 정의합니다.
+# --- Boost 라이브러리 찾기 (Asio + Beast) ---
+# find_package 시 필요한 컴포넌트를 명시한다.
+# Boost::headers는 많은 Boost 라이브러리에서 필요하다.
+find_package(Boost 1.70.0 REQUIRED COMPONENTS system asio beast) # asio와 beast 명시
+message(STATUS "Boost include directories: ${Boost_INCLUDE_DIRS}")
+
 add_library(CherryRecorder-Server) # 소스 파일은 target_sources 로 추가 권장
 
 # target_sources를 사용하여 소스 파일을 명시적으로 추가합니다 (가독성 및 관리 용이성)
-target_sources(CherryRecorder-Server PRIVATE
-    src/CherryRecorder-Server.cpp
-    # 헤더 파일은 보통 target_include_directories로 관리되므로 여기서 꼭 필요하진 않음
-    # include/CherryRecorder-Server.hpp
+target_sources(CherryRecorder-Server 
+    PRIVATE
+        src/CherryRecorder-Server.cpp
 )
 
 # 외부에서 이 라이브러리를 사용할 때 필요한 include 경로를 PUBLIC으로 지정합니다.
 target_include_directories(CherryRecorder-Server
     PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> # 빌드 시 필요
-        $<INSTALL_INTERFACE:include> # 설치 시 include/ 디렉토리에 설치될 것을 가정
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+        # Boost 헤더 경로 추가 (find_package 결과 사용)
+        $<BUILD_INTERFACE:${Boost_INCLUDE_DIRS}>
 )
 
 # vcpkg를 통해 Boost.Asio 의존성을 찾습니다. CONFIG 모드는 vcpkg 연동 시 표준 방식입니다.
@@ -85,8 +92,32 @@ find_package(boost_asio CONFIG REQUIRED)
 target_link_libraries(CherryRecorder-Server
     PUBLIC
         Boost::asio
+        Boost::system
 )
-message(STATUS "Configured target: CherryRecorder-Server library")
+message(STATUS "Configured target: CherryRecorder-Server library (TCP Echo)")
+
+# --- 라이브러리 타겟 정의: HttpServerLib (HTTP Health Check) ---
+add_library(HttpServerLib)
+target_sources(HttpServerLib PRIVATE src/HttpServer.cpp) # HttpServer 구현 소스
+target_include_directories(HttpServerLib PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> # HttpServer.hpp 포함
+    $<INSTALL_INTERFACE:include>
+    $<BUILD_INTERFACE:${Boost_INCLUDE_DIRS}>               # Beast/Asio 헤더 필요
+)
+target_link_libraries(HttpServerLib PUBLIC # 필요한 라이브러리 링크
+    Boost::beast
+    Boost::system
+    Boost::asio # HttpServer 내부에서 Asio 사용 시 필요
+)
+
+# 플랫폼별 스레드 라이브러리 링크 (HttpServer 가 스레드 사용 시)
+if(NOT WIN32)
+    find_package(Threads REQUIRED)
+    if(Threads_FOUND)
+        target_link_libraries(HttpServerLib PUBLIC Threads::Threads)
+    endif()
+endif()
+message(STATUS "Configured target: HttpServerLib library (HTTP Health)")
 
 # ----------------------------------------------------------------------
 # 실행 파일 타겟 정의 (CherryRecorder-Server-App)
@@ -94,17 +125,43 @@ message(STATUS "Configured target: CherryRecorder-Server library")
 # 실제 서버 애플리케이션의 진입점(main 함수 포함)을 정의합니다.
 add_executable(CherryRecorder-Server-App)
 
-target_sources(CherryRecorder-Server-App PRIVATE
-    src/main.cpp
+target_sources(CherryRecorder-Server-App 
+    PRIVATE
+        src/main.cpp
+)
+target_include_directories(CherryRecorder-Server-App 
+    PRIVATE 
+        ${Boost_INCLUDE_DIRS}) # main 에서 Boost 사용 시
+
+# 필요한 라이브러리들 링크
+target_link_libraries(CherryRecorder-Server-App
+    PRIVATE
+        CherryRecorder-Server   # TCP Echo 로직 라이브러리
+        HttpServerLib           # HTTP 서버 로직 라이브러리
+        # main.cpp에서 직접 사용하는 다른 라이브러리 (예: Boost::system 등)
 )
 
 # 위에서 정의한 CherryRecorder-Server 라이브러리를 PRIVATE으로 링크합니다.
 # App 내부에서만 Server 라이브러리를 사용하고 외부로 노출하지 않습니다.
 target_link_libraries(CherryRecorder-Server-App
     PRIVATE
-        CherryRecorder-Server
+        CherryRecorder-Server # 기존 TCP Echo 서버 라이브러리
+        Boost::beast          # Boost.Beast 라이브러리 링크
+        Boost::system         # Boost 의존성
+        # 필요 시 OpenSSL 등 링크 (HTTPS 사용 시)
 )
-message(STATUS "Configured target: CherryRecorder-Server-App executable")
+
+# 플랫폼에 따라 스레드 라이브러리 조건부 링크
+if(Threads_FOUND AND NOT WIN32) # Threads를 찾았고 Windows가 아닐 경우에만 링크
+  target_link_libraries(CherryRecorder-Server-App PRIVATE Threads::Threads)
+  message(STATUS "Linking with Threads::Threads on non-Windows platform.")
+elseif(WIN32)
+  message(STATUS "Windows platform detected, assuming native threads support via C++ standard library. Skipping explicit Threads::Threads linkage.")
+else()
+  message(WARNING "Threads library not found and not on Windows. Manual thread library configuration might be needed for this platform.")
+endif()
+
+message(STATUS "Configured target: CherryRecorder-Server-App executable (TCP Echo + HTTP Health Check)")
 
 # ----------------------------------------------------------------------
 # 테스트 타겟 정의 (CherryRecorder-Server-Testing)
@@ -116,32 +173,49 @@ option(BUILD_TESTING "Build the unit tests" ON)
 if(BUILD_TESTING)
   # CTest 시스템 활성화
   enable_testing()
-
   # Google Test (GTest) 패키지를 찾습니다.
   find_package(GTest CONFIG REQUIRED)
 
   # 테스트용 실행 파일을 정의합니다.
   add_executable(CherryRecorder-Server-Testing)
-
-  target_sources(CherryRecorder-Server-Testing PRIVATE
+  target_sources(CherryRecorder-Server-Testing 
+    PRIVATE
       tests/test_main.cpp
       tests/test_echo_server.cpp
+      tests/test_http_server.cpp
   )
-
+  target_include_directories(CherryRecorder-Server-Testing 
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include # 프로젝트 include 경로
+        ${Boost_INCLUDE_DIRS}   # 테스트에도 Boost 필요
+  )
   # 테스트 실행 파일에 필요한 라이브러리들을 PRIVATE으로 링크합니다.
   # GTest::gtest_main 타겟은 GTest 라이브러리와 main 함수를 포함합니다.
-  target_link_libraries(CherryRecorder-Server-Testing
-      PRIVATE
-          CherryRecorder-Server
-          GTest::gtest_main
+  # 테스트 실행 파일에 필요한 라이브러리 링크
+  target_link_libraries(CherryRecorder-Server-Testing PRIVATE
+      CherryRecorder-Server # EchoServer 테스트 위해 필요
+      HttpServerLib         # HttpServer 테스트 위해 필요
+      GTest::gtest_main     # GTest
+      Boost::system         # 테스트 코드에서 Boost 사용 시
+      # 필요한 다른 라이브러리 (테스트 코드에서 사용 시)
   )
+
+  # 플랫폼에 따라 스레드 라이브러리 조건부 링크
+  if(Threads_FOUND AND NOT WIN32) # Threads를 찾았고 Windows가 아닐 경우에만 링크
+    target_link_libraries(CherryRecorder-Server-Testing PRIVATE Threads::Threads)
+    message(STATUS "Linking with Threads::Threads on non-Windows platform.")
+  elseif(WIN32)
+    message(STATUS "Windows platform detected, assuming native threads support via C++ standard library. Skipping explicit Threads::Threads linkage.")
+  else()
+    message(WARNING "Threads library not found and not on Windows. Manual thread library configuration might be needed for this platform.")
+  endif()
 
   # CTest 프레임워크에 실행할 테스트를 등록합니다.
   # "CherryRecorderServerTest" 라는 이름으로 테스트를 등록하고,
   # 실행할 명령어는 빌드된 "CherryRecorder-Server-Testing" 실행 파일입니다.
   add_test(NAME CherryRecorderServerTest COMMAND CherryRecorder-Server-Testing)
+  message(STATUS "Configured target: CherryRecorder-Server-Testing executable (TCP Echo)")
 
-  message(STATUS "BUILD_TESTING is ON. Configured target: CherryRecorder-Server-Testing executable")
 else()
   message(STATUS "BUILD_TESTING is OFF. Skipping test configuration.")
 endif()
