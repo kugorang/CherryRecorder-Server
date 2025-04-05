@@ -1,5 +1,5 @@
 # .github/workflows/reusable-docs-build.yml
-# 목적: Doxygen 문서를 생성하고 GitHub Pages 배포용 아티팩트를 업로드합니다.
+# 목적: Doxygen 문서를 생성하고 GitHub Pages 배포용 아티팩트를 업로드합니다. (캐싱 적용)
 name: Reusable - Generate Documentation
 
 on:
@@ -9,15 +9,62 @@ jobs:
   docs_job:
     name: Generate and Upload Doxygen Docs
     runs-on: ubuntu-latest
+    # Job 출력: 문서가 새로 생성되었는지 여부
+    outputs:
+      docs-generated: ${{ steps.generate_docs.outputs.executed }}
+
     steps:
+      # 1. 소스 코드 체크아웃
       - name: Check out source code
         uses: actions/checkout@v4
+
+      # 2. Doxygen 및 Graphviz 설치 (항상 필요)
       - name: Install Doxygen & Graphviz
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends doxygen graphviz && sudo rm -rf /var/lib/apt/lists/*
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends doxygen graphviz && sudo rm -rf /var/lib/apt/lists/*
+        shell: bash
+
+      # 3. 캐시 설정 및 복원 시도
+      #    - 문서 출력 디렉토리를 캐싱 대상으로 지정
+      #    - 캐시 키는 OS, Doxyfile 해시, 소스 파일 해시를 조합하여 생성
+      - name: Cache Doxygen output
+        id: cache-docs
+        uses: actions/cache@v4
+        with:
+          # 캐시할 경로 (Doxyfile의 OUTPUT_DIRECTORY + HTML_OUTPUT 설정과 일치해야 함)
+          path: ./docs/docs_output/html
+          # 캐시 키: OS + Doxyfile 해시 + src/, include/ 디렉토리 내용 해시
+          key: ${{ runner.os }}-doxygen-${{ hashFiles('docs/Doxyfile') }}-${{ hashFiles('src/**', 'include/**') }}
+          # 복원 키 (선택 사항): 정확한 키가 없을 때 사용할 유사 키 패턴
+          restore-keys: |
+            ${{ runner.os }}-doxygen-${{ hashFiles('docs/Doxyfile') }}-
+
+      # 4. Doxygen 문서 생성 (캐시 미복원 시에만 실행)
+      #    - cache-docs 단계의 'cache-hit' 출력값을 사용하여 조건부 실행
       - name: Generate Documentation
-        run: doxygen ./docs/Doxyfile
+        id: generate_docs
+        # cache-docs 단계에서 cache-hit가 'true'가 아닐 때만 이 단계를 실행
+        if: steps.cache-docs.outputs.cache-hit != 'true'
+        run: |
+          echo "Cache miss. Generating documentation..."
+          doxygen ./docs/Doxyfile
+          # 이 단계가 실행되었음을 출력 (선택적)
+          echo "executed=true" >> $GITHUB_OUTPUT
+        shell: bash
+
+      # 5. Pages 아티팩트 업로드 (항상 실행)
+      #    - 캐시 히트 시: 캐시에서 복원된 ./docs/docs_output/html 업로드
+      #    - 캐시 미스 시: 새로 생성된 ./docs/docs_output/html 업로드
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # 경로 주의: Doxyfile의 OUTPUT_DIRECTORY + html 하위 경로가 맞는지 최종 확인 필요!
+          # 캐시 설정의 path와 동일한 경로 지정
           path: ./docs/docs_output/html
+
+      # (디버깅용) 캐시 및 실행 상태 확인 로그 (선택 사항)
+      - name: Log Cache/Generation Status
+        if: always() # 항상 실행되도록 설정
+        run: |
+          echo "Cache hit: ${{ steps.cache-docs.outputs.cache-hit }}"
+          # echo "Docs generated in this run: ${{ steps.generate_docs.outputs.executed }}"
+        shell: bash

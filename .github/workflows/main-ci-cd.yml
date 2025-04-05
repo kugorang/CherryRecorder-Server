@@ -87,16 +87,24 @@ jobs:
 
   # --- 2. 문서 생성 ---
   call_docs_build:
+    # 빌드/테스트가 성공하면 Doxygen 문서를 생성하고 아티팩트를 업로드합니다. (캐싱 적용됨)
     name: 2. Generate Documentation
     uses: ./.github/workflows/reusable-docs-build.yml
     needs: call_build_test
+    # reusable-docs-build.yml의 job 레벨 outputs 정의가 필요함
+    # 예:
+    # outputs:
+    #  docs-generated: ${{ jobs.docs_job.outputs.docs-generated }}
 
   # --- 3. GitHub Pages 배포 ---
+  # 문서가 '새로 생성되었을 경우에만' GitHub Pages로 배포합니다.
   deploy_docs_pages:
     name: 3. Deploy Docs to GitHub Pages
     runs-on: ubuntu-latest
-    needs: call_docs_build
-    permissions: { pages: write, id-token: write }
+    needs: call_docs_build  # Job 2 (문서 생성/캐싱) 완료 후 실행
+    # call_docs_build 작업의 docs-generated 출력이 'true'일 때만 이 작업을 실행
+    if: needs.call_docs_build.outputs.docs-generated == 'true'
+    permissions: { pages: write, id-token: write }  # Pages 배포 권한
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -139,7 +147,8 @@ jobs:
       dockerhub_repo_name: ${{ needs.call_docker_build.outputs.dh_repo_name }}
       image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
       image_tag_latest: ${{ needs.call_docker_build.outputs.image_tag_latest }}
-      ghcr_image_uri: ${{ needs.call_docker_build.outputs.ghcr_image_uri }}
+      local_image_tag_built: ${{ needs.call_docker_build.outputs.local_image_tag }}
+      image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }}
     secrets:
       dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
       dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -158,7 +167,8 @@ jobs:
       image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
       image_tag_latest: ${{ needs.call_docker_build.outputs.image_tag_latest }}
       aws_region: ${{ vars.AWS_REGION }}
-      ghcr_image_uri: ${{ needs.call_docker_build.outputs.ghcr_image_uri }}
+      local_image_tag_built: ${{ needs.call_docker_build.outputs.local_image_tag }}
+      image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }}
     secrets:
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
 
@@ -188,6 +198,9 @@ jobs:
       # Task Definition 템플릿 변수 전달
       health_check_port_value: ${{ vars.HEALTH_CHECK_PORT_VALUE }}
       echo_server_port_value: ${{ vars.ECHO_SERVER_PORT_VALUE }}
+      health_check_ip_value: ${{ vars.HEALTH_CHECK_IP_VALUE }}
+      http_threads_value: ${{ vars.HTTP_THREADS_VALUE }}
+      doc_root_value: ${{ vars.DOC_ROOT_VALUE }}
     secrets:
       # AWS OIDC 역할 ARN
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}

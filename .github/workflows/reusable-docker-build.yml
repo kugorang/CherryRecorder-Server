@@ -1,10 +1,9 @@
 # .github/workflows/reusable-docker-build.yml
-# 목적: Dockerfile을 사용하여 이미지를 빌드하고, ECR 및 Docker Hub 푸시를 위한 태그를 지정합니다.
+# 목적: Dockerfile을 사용하여 이미지를 빌드/캐시하고, 이미지 정보를 출력합니다. (푸시 없음)
 name: Reusable - Build Docker Image with Cache
 
 on:
   workflow_call:
-    # 입력값: 리포지토리 이름, ECR 주소 구성 요소
     inputs:
       aws_region:
         description: 'AWS region for ECR'
@@ -12,7 +11,7 @@ on:
         type: string
       aws_account_id:
         description: 'AWS Account ID for ECR registry'
-        required: true # ECR 주소 구성 위해 필요
+        required: true
         type: string
       ecr_repo:
         description: 'AWS ECR repository name'
@@ -22,46 +21,53 @@ on:
         description: 'Docker Hub repository name (e.g., repo, NOT user/repo)'
         required: true
         type: string
-    # 출력값: 생성된 이미지의 전체 이름과 태그
     outputs:
+      # 로컬에서 식별 및 검사용으로 사용할 특정 태그
+      local_image_tag:
+        description: '빌드 시 적용된 로컬 태그 (예: sha-값)'
+        value: ${{ jobs.build_image_job.outputs.tag_sha_local }}
+      # 빌드된 이미지의 실제 내용 해시
+      image_digest:
+        description: '빌드된 이미지의 다이제스트 (예: sha256:값)'
+        value: ${{ jobs.build_image_job.outputs.digest }}
+      # 호출 워크플로우에서 필요한 다른 정보들
       image_name_ecr:
-        description: 'Full image name for ECR (without tags)'
+        description: 'ECR용 전체 이미지 이름 (태그 제외)'
         value: ${{ jobs.build_image_job.outputs.ecr_image_name_no_tag }}
       dh_repo_name:
-        description: 'Docker Hub repository name (without username)'
+        description: 'Docker Hub 리포지토리 이름'
         value: ${{ jobs.build_image_job.outputs.dh_repo_name_output }}
       image_tag_sha:
-        description: 'Image tag based on Git SHA'
+        description: 'Git SHA 기반 태그 (푸시 시 사용될 태그)'
         value: ${{ jobs.build_image_job.outputs.tag_sha }}
-      image_tag_latest:
-        description: 'Image tag "latest"'
-        value: 'latest'
-      ghcr_image_uri:
-        value: ${{ jobs.build_image_job.outputs.ghcr_uri_output }}
 
 jobs:
   build_image_job:
-    name: Build with Cache and Push GHCR
+    name: Build Docker Image with Cache
     runs-on: ubuntu-latest
-    # GitHub 패키지 접근 권한 추가
     permissions:
-      packages: write # GHCR 푸시 권한
+      packages: write # GHCR 캐시 사용 시 필요할 수 있음
       contents: read
     outputs:
       ecr_image_name_no_tag: ${{ steps.set-names.outputs.ecr_name }}
       dh_repo_name_output: ${{ steps.set-names.outputs.dh_repo }}
       tag_sha: ${{ steps.tag-image.outputs.tag }}
-      ghcr_uri_output: ${{ steps.push-ghcr.outputs.image_uri_ghcr }}
+      tag_sha_local: ${{ steps.set-local-tag.outputs.local_tag }} # 로컬 태그 출력 추가
+      digest: ${{ steps.get-digest.outputs.digest }}           # 다이제스트 출력 추가
 
     steps:
-      # 1. 소스 코드 체크아웃
       - name: Check out source code
         uses: actions/checkout@v4
 
-      # 2. 이미지 태그 설정 (Git SHA 사용)
       - name: Set Image Tag (SHA)
         id: tag-image
-        run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+        # 태그 충돌 방지 및 명확성을 위해 'sha-' 접두사 사용 권장
+        run: echo "tag=sha-${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      # 로컬에서 사용할 태그 설정 (ECR/DH와 무관, 빌드/로드/검사용)
+      - name: Set Local Image Tag
+        id: set-local-tag
+        run: echo "local_tag=localbuild:${{ steps.tag-image.outputs.tag }}" >> $GITHUB_OUTPUT
 
       # 3. ECR 및 Docker Hub 이미지 전체 이름 설정 및 출력
       - name: Set Image Names (ECR, DH Repo, GHCR Base)
@@ -72,53 +78,53 @@ jobs:
           AWS_REGION: ${{ inputs.aws_region }}
           ECR_REPO: ${{ inputs.ecr_repo }}
           DH_REPO: ${{ inputs.dockerhub_repo }}
-          REPO_OWNER: ${{ github.repository_owner }}
-          REPO_NAME: ${{ github.event.repository.name }}
         run: |
-          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-          # GHCR 베이스 이름 설정 (소문자 변환 포함)
-          GHCR_OWNER_LC=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
-          GHCR_REPO_LC=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')
-          GHCR_BASE="ghcr.io/${GHCR_OWNER_LC}/${GHCR_REPO_LC}-build-cache"
-          echo "ghcr_base_name=$GHCR_BASE" >> $GITHUB_OUTPUT
-          echo "ecr_name=$ECR_REGISTRY/$ECR_REPO" >> $GITHUB_OUTPUT
-          echo "dh_repo=$DH_REPO" >> $GITHUB_OUTPUT # <<< 리포지토리 이름만 출력
+          ECR_REGISTRY="${{ inputs.aws_account_id }}.dkr.ecr.${{ inputs.aws_region }}.amazonaws.com"
+          echo "ecr_name=$ECR_REGISTRY/${{ inputs.ecr_repo }}" >> $GITHUB_OUTPUT
+          echo "dh_repo=${{ inputs.dockerhub_repo }}" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 4. Docker 이미지 빌드 및 태그 동시 지정
-      - name: Build Docker image with Cache
+      # 4. Docker 이미지 빌드 및 로컬 도커 데몬으로 로드
+      - name: Build and Load Docker image with Cache
+        id: build-load
         uses: docker/build-push-action@v5
         with:
           context: .
-          # 빌드할 태그 목록 (ECR용, GHCR용)
-          tags: |
-            ${{ steps.set-names.outputs.ecr_name }}:${{ steps.tag-image.outputs.tag }}
-            ${{ steps.set-names.outputs.ecr_name }}:latest
-            ${{ steps.set-names.outputs.ghcr_base_name }}:${{ steps.tag-image.outputs.tag }}
-          # 푸시는 하지 않고 로컬 도커 데몬으로 로드
-          push: false
-          load: true
-          # GHA 캐시 사용 설정
+          # 로컬에 로드할 때 사용할 특정 태그 지정
+          tags: ${{ steps.set-local-tag.outputs.local_tag }}
+          push: false # 푸시는 하지 않음
+          load: true  # 로컬 도커 데몬으로 로드
+          # GHA 캐시 또는 Registry 캐시 사용 (Registry 캐시가 더 효율적일 수 있음)
           cache-from: type=gha
+          # cache-from: type=registry,ref=${{ steps.set-names.outputs.ecr_name }}:cache # 예시
           cache-to: type=gha,mode=max
+          # cache-to: type=registry,ref=${{ steps.set-names.outputs.ecr_name }}:cache,mode=max # 예시
 
-      # GHCR 로그인 및 푸시 단계 추가
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
-
-      - name: Push ONLY GHCR tag
-        id: push-ghcr # 스텝 ID 부여
-        env:
-          # 푸시할 GHCR 이미지 태그 조합
-          GHCR_IMAGE: ${{ steps.set-names.outputs.ghcr_base_name }}:${{ steps.tag-image.outputs.tag }}
+      # 5. 빌드된 이미지의 Digest 추출 (중요!)
+      - name: Inspect image and extract digest
+        id: get-digest
         run: |
-          echo "Pushing to GHCR: $GHCR_IMAGE"
-          docker push $GHCR_IMAGE
-          # 이미지 URI를 출력으로 설정
-          echo "image_uri_ghcr=$GHCR_IMAGE" >> $GITHUB_OUTPUT
+          IMAGE_NAME="${{ steps.set-local-tag.outputs.local_tag }}"
+          # 'docker inspect'로 이미지의 Digest 정보를 가져옴
+          # RepoDigests는 푸시된 후에 생기므로, 여기서는 Image ID나 Config.Digest를 사용해야 할 수 있음
+          # 가장 안정적인 것은 'Id' (sha256:...) 또는 'ContainerConfig.Image', 'RootFS.Layers' 등을 조합하는 것이지만 복잡함
+          # 여기서는 이미지 ID의 해시 부분(Digest ID)을 사용 시도 (동일 내용이면 동일 ID 생성 가정)
+          IMAGE_ID=$(docker inspect --format='{{.Id}}' $IMAGE_NAME)
+          if [[ "$IMAGE_ID" == sha256:* ]]; then
+            DIGEST=$IMAGE_ID
+          else
+            # ID가 해시가 아닌 경우, 다른 방법 시도 (덜 안정적일 수 있음)
+            echo "Warning: Image ID format unexpected: $IMAGE_ID"
+            DIGEST=$(docker image inspect --format='{{.Digest}}' $IMAGE_NAME || echo "") # Digest 필드 시도
+            if [ -z "$DIGEST" ] || [ "$DIGEST" == "<no value>" ]; then
+               echo "Error: Could not determine reliable image digest for $IMAGE_NAME"
+               # 임시로 ID 전체 사용 (푸시 로직에서 처리 필요)
+               DIGEST=$IMAGE_ID
+               # exit 1 # 또는 빌드 실패 처리
+            fi
+          fi
+          echo "Built Image Digest/ID: $DIGEST"
+          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+        shell: bash
