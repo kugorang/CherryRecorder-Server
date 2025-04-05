@@ -6,9 +6,7 @@
   "containerDefinitions": [
     {
       "name": "$CONTAINER_NAME",
-      "image": "placeholder",
-      "cpu": 1024,
-      "memory": 970,
+      "memory": 512,
       "essential": true,
       "portMappings": [
         {
