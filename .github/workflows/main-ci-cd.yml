@@ -144,7 +144,7 @@ jobs:
     permissions:
       packages: read
     with:
-      dockerhub_repo_name: ${{ needs.call_docker_build.outputs.dh_repo_name }}
+      dh_repo_name: ${{ needs.call_docker_build.outputs.dh_repo_name }}
       image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
       image_tag_latest: ${{ needs.call_docker_build.outputs.image_tag_latest }}
       local_image_tag_built: ${{ needs.call_docker_build.outputs.local_image_tag }}
