@@ -25,6 +25,8 @@ public:
      */
     EchoServer(boost::asio::io_context& io_context, unsigned short port);
 
+	~EchoServer();
+
     /**
      * @brief 서버를 시작하여 클라이언트 연결을 비동기적으로 수락합니다.
      *

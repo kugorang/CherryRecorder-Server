@@ -1,6 +1,10 @@
 #include "CherryRecorder-Server.hpp"
 #include <iostream>
 #include <memory>
+#include <boost/system/error_code.hpp> // error_code 사용 위해 포함
+#include <boost/asio.hpp> // Boost.Asio 사용 위해 포함
+#include <cstdio> // fprintf 사용 위해 포함
+
 
 /**
  * @file CherryRecorder-Server.cpp
@@ -117,8 +121,66 @@ private:
 
 EchoServer::EchoServer(boost::asio::io_context& io_context, unsigned short port)
 	: io_context_(io_context),
-	acceptor_(io_context, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port))
+	// acceptor_를 생성만 하고, open/bind/listen은 아래에서 명시적으로 수행
+	acceptor_(io_context)
+	// 이전 코드: acceptor_(io_context, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port))
 {
+	boost::system::error_code ec;
+	boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(), port); // 엔드포인트 생성
+
+	// 1. Acceptor 열기
+	acceptor_.open(endpoint.protocol(), ec);
+	if (ec) {
+		fprintf(stderr, "[EchoServer Constructor] Acceptor open error: %s\n", ec.message().c_str());
+		throw std::system_error{ ec, "Acceptor open failed" }; // 생성자에서 예외 throw
+	}
+
+	// --- 2. SO_REUSEADDR 옵션 설정 (핵심 수정) ---
+	acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
+	if (ec) {
+		fprintf(stderr, "[EchoServer Constructor] Set reuse_address option error: %s\n", ec.message().c_str());
+		acceptor_.close(); // 실패 시 acceptor 닫기
+		throw std::system_error{ ec, "Set reuse_address failed" };
+	}
+	else {
+		fprintf(stdout, "[EchoServer %p] Set reuse_address option successfully.\n", this);
+	}
+	// --- 옵션 설정 끝 ---
+
+	// 3. 엔드포인트에 바인딩
+	acceptor_.bind(endpoint, ec);
+	if (ec) {
+		fprintf(stderr, "[EchoServer Constructor] Bind error: %s\n", ec.message().c_str());
+		acceptor_.close();
+		throw std::system_error{ ec, "Bind failed" };
+	}
+
+	// 4. 리스닝 시작
+	acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
+	if (ec) {
+		fprintf(stderr, "[EchoServer Constructor] Listen error: %s\n", ec.message().c_str());
+		acceptor_.close();
+		throw std::system_error{ ec, "Listen failed" };
+	}
+
+	fprintf(stdout, "[EchoServer %p] Acceptor created and listening on port %d.\n", this, port);
+}
+
+EchoServer::~EchoServer() {
+	fprintf(stdout, "[EchoServer %p] Destructor called. Closing acceptor...\n", this);
+	if (acceptor_.is_open()) {
+		boost::system::error_code ec;
+		acceptor_.close(ec); // 명시적 닫기
+		if (ec) {
+			fprintf(stderr, "[EchoServer Destructor] Acceptor close error: %s\n", ec.message().c_str());
+		}
+		else {
+			fprintf(stdout, "[EchoServer %p] Acceptor closed.\n", this);
+		}
+	}
+	else {
+		fprintf(stdout, "[EchoServer %p] Acceptor was already closed.\n", this);
+	}
 }
 
 void EchoServer::start() {

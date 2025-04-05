@@ -87,15 +87,20 @@ protected:
     // 각 테스트 케이스 종료 후 호출
     void TearDown() override {
         fprintf(stdout, "Tearing down test Echo server...\n");
-        // 1. 서버 io_context 중지 요청
+        // io_context 중지
         if (server_ioc && !server_ioc->stopped()) {
             server_ioc->stop();
         }
-
-        // 2. 서버 스레드 종료 대기
+        // 스레드 join
         if (server_thread.joinable()) {
             server_thread.join();
         }
+        // --- 서버 객체 명시적 리셋 추가 ---
+        // 이것은 EchoServer 소멸자 호출을 보장하여 acceptor가 닫히도록 함
+        server.reset();
+        fprintf(stdout, "[EchoServerTest::TearDown] Server object reset.\n");
+        // --- 추가 끝 ---
+
         fprintf(stdout, "Test Echo Server teardown complete.\n");
     }
 
