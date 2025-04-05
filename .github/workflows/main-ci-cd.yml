@@ -144,7 +144,7 @@ jobs:
     permissions:
       packages: read
     with:
-      dockerhub_repo_name: ${{ needs.call_docker_build.outputs.dh_repo_name_output }}
+      dockerhub_repo_name: ${{ needs.call_docker_build.outputs.dh_repo_name }}
       image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
       image_tag_latest: 'latest'
       local_image_tag_built: ${{ needs.call_docker_build.outputs.local_image_tag }}
@@ -165,7 +165,7 @@ jobs:
     with:
       image_name_ecr: ${{ needs.call_docker_build.outputs.image_name_ecr }}
       image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
-      image_tag_latest: ${{ needs.call_docker_build.outputs.image_tag_latest }}
+      image_tag_latest: 'latest'
       aws_region: ${{ vars.AWS_REGION }}
       local_image_tag_built: ${{ needs.call_docker_build.outputs.local_image_tag }}
       image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }}
