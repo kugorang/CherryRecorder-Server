@@ -65,7 +65,6 @@ RUN echo "--- Required Shared Libraries (Check paths starting with /app/build/vc
     ldd /app/build/CherryRecorder-Server-App && \
     echo "--- End of Shared Library List ---"
 
-
 # ----------------------------------------------------------------------
 # 스테이지 2: "Final" - 애플리케이션 실행 전용 환경
 # ----------------------------------------------------------------------
@@ -79,7 +78,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 # 필수 런타임 시스템 라이브러리 설치
 # - ca-certificates: SSL/TLS 통신 기본
 # - curl: Health Check 용도
-# - DB 관련 런타임 라이브러리 제거됨
 # - libssl3: OpenSSL 런타임 (Builder의 libssl-dev와 버전 호환성 확인 필요, Ubuntu 24.04는 libssl3 사용)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -132,7 +130,7 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 \
   CMD curl --fail http://127.0.0.1:${HEALTH_CHECK_PORT:-8080}/health || exit 1
 
 # 이미지 메타데이터 라벨
-LABEL maintainer="Your Name <your.email@example.com>" \
+LABEL maintainer="Kim Hyeonwoo <ialskdji@gmail.com>" \
       description="CherryRecorder Server Application - TCP Echo & HTTP Health Check" \
       version="0.1.1"
 

@@ -198,9 +198,6 @@ jobs:
       # Task Definition 템플릿 변수 전달
       health_check_port_value: ${{ vars.HEALTH_CHECK_PORT_VALUE }}
       echo_server_port_value: ${{ vars.ECHO_SERVER_PORT_VALUE }}
-      health_check_ip_value: ${{ vars.HEALTH_CHECK_IP_VALUE }}
-      http_threads_value: ${{ vars.HTTP_THREADS_VALUE }}
-      doc_root_value: ${{ vars.DOC_ROOT_VALUE }}
     secrets:
       # AWS OIDC 역할 ARN
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}

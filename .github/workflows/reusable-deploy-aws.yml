@@ -29,21 +29,6 @@ on:
         type: string
         default: "33333"
         description: TCP Echo 서버가 사용할 컨테이너 포트
-      health_check_ip:
-        description: 'HTTP 서버가 컨테이너 내부에서 바인딩할 IP/호스트명'
-        required: false # false로 하면 기본값 사용
-        type: string
-        default: '0.0.0.0' # 컨테이너 내부에서는 보통 0.0.0.0 사용
-      http_threads:
-        description: 'HTTP 서버가 사용할 스레드 수 (0 이하는 코어 수)'
-        required: false
-        type: string
-        default: '4' # jq --arg 로 받으려면 문자열이 편함
-      doc_root:
-        description: '정적 파일 문서 루트 (필요 시)'
-        required: false
-        type: string
-        default: '.'
       task_definition_template_path:
         required: true
         type: string
@@ -96,9 +81,6 @@ jobs:
              --arg execution_role_arn "${{ secrets.task_execution_role_arn }}" \
              --arg container_name "${{ inputs.container_name }}" \
              --arg aws_region "${{ inputs.aws_region }}" \
-             --arg health_ip "${{ inputs.health_check_ip }}" \
-             --arg http_thr "${{ inputs.http_threads }}" \
-             --arg doc_rt "${{ inputs.doc_root }}" \
              '.
               | .family = $family
               | .executionRoleArn = $execution_role_arn
@@ -110,10 +92,7 @@ jobs:
                ]
               | .containerDefinitions[0].environment = [
                  { "name": "HEALTH_CHECK_PORT", "value": ($health_port | tostring) },
-                 { "name": "ECHO_SERVER_PORT",  "value": ($echo_port | tostring) },
-                 { "name": "HEALTH_CHECK_IP",   "value": $health_ip },
-                 { "name": "HTTP_THREADS",      "value": $http_thr },
-                 { "name": "DOC_ROOT",          "value": $doc_rt }
+                 { "name": "ECHO_SERVER_PORT",  "value": ($echo_port | tostring) }
                ]
               | .containerDefinitions[0].logConfiguration.options."awslogs-group" = "/ecs/" + $family
               | .containerDefinitions[0].logConfiguration.options."awslogs-region" = $aws_region
