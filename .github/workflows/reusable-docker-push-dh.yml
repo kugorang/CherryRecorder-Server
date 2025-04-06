@@ -10,21 +10,21 @@ on:
         description: 'Base Docker Hub repository name (without username)'
         required: true
         type: string
-      image_tag_sha:
+      image_tag_sha: # 예: sha-abcdef1
         description: 'Image tag based on Git SHA (e.g., sha-xxxx)'
         required: true
         type: string
-      image_tag_latest:
+      image_tag_latest: # 예: latest
         description: 'The :latest tag string'
         required: true
         type: string
         default: 'latest'
-      image_digest_built:
-        description: 'Digest of the image built (sha256:...)'
+      image_digest_built: # 예: sha256:aabbcc...
+        description: 'Manifest digest of the image built (sha256:...)'
         required: true
         type: string
       # Pull 대상 GHCR 이미지 URI (SHA 태그 포함)
-      ghcr_image_uri_sha:
+      ghcr_image_uri_sha: # 예: ghcr.io/owner/repo:sha-abcdef1
         description: 'Full URI of the image in GHCR with SHA tag (for pulling)'
         required: true
         type: string
@@ -55,58 +55,83 @@ jobs:
           username: ${{ secrets.dockerhub_username }}
           password: ${{ secrets.dockerhub_token }}
 
-      # 2. GHCR 로그인 (Public은 불필요, Private은 PAT 또는 GITHUB_TOKEN 필요)
+      # 2. GHCR 로그인 (이미지 Pull 위해)
+      # Private 리포지토리 Pull을 위해 필요. Public이면 생략 가능하나 명시적으로 두는 것이 안전.
       - name: Log in to GitHub Container Registry (for pull)
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
+          password: ${{ github.token }} # GITHUB_TOKEN 사용
 
+      # 3. skopeo 설치 (Docker Hub 이미지 다이제스트 검사용)
       - name: Install skopeo
         run: |
-          sudo apt-get update
-          sudo apt-get install -y skopeo
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends skopeo && sudo rm -rf /var/lib/apt/lists/*
+        shell: bash
 
-      # 3. Docker Hub의 :latest 태그 다이제스트 조회
-      - name: Get Docker Hub image digest
+      # 4. Docker Hub의 :latest 태그 매니페스트 다이제스트 조회 (수정된 로직)
+      - name: Get Docker Hub image manifest digest
         id: get-latest-digest-dh
         env:
             DH_USER: ${{ secrets.dockerhub_username }}
-            DH_REPO: ${{ inputs.dockerhub_repo_name }}
+            DH_REPO: ${{ inputs.dockerhub_repo_name }} # 입력받은 리포 이름 사용
         run: |
+            # Docker Hub 사용자명 및 리포 이름 소문자 변환 (공식 권장)
             DH_USER_LC=$(echo "$DH_USER" | tr '[:upper:]' '[:lower:]')
             DH_REPO_LC=$(echo "$DH_REPO" | tr '[:upper:]' '[:lower:]')
             DH_IMAGE_LATEST="${DH_USER_LC}/${DH_REPO_LC}:latest"
-    
-            echo "Checking digest for Docker Hub image: $DH_IMAGE_LATEST"
-            LATEST_DIGEST=$(skopeo inspect docker://$DH_IMAGE_LATEST --raw 2>/dev/null | jq -r '.config.digest // ""' || echo "")
-    
-            echo "Current :latest digest in Docker Hub: $LATEST_DIGEST"
+
+            echo "Checking manifest digest for Docker Hub image: $DH_IMAGE_LATEST"
+            LATEST_DIGEST="" # 초기화
+
+            # skopeo inspect 실행하여 매니페스트 다이제스트 가져오기 (오류 시 빈 문자열 반환)
+            LATEST_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://$DH_IMAGE_LATEST 2>/dev/null || echo "")
+
+            if [ -n "$LATEST_DIGEST" ]; then
+              echo "Current :latest manifest digest in Docker Hub: $LATEST_DIGEST"
+            else
+              echo "Could not retrieve digest for $DH_IMAGE_LATEST (Image might not exist or registry error)."
+            fi
+
+            # 다이제스트 길이 로깅 (디버깅용)
             echo "Digest length: ${#LATEST_DIGEST}"
+            # 조회된 다이제스트 (또는 빈 문자열)를 출력으로 설정
             echo "latest_digest=$LATEST_DIGEST" >> $GITHUB_OUTPUT
-            
-      # 4. 다이제스트 비교 및 푸시 결정
+        shell: bash
+
+      # 5. 다이제스트 비교 및 푸시 결정
       - name: Check digests and set push flag
         id: check-push-dh
         run: |
+          # 빌드된 이미지의 매니페스트 다이제스트 (input으로 받음)
           BUILT_DIGEST="${{ inputs.image_digest_built }}"
+          # Docker Hub에서 조회한 매니페스트 다이제스트
           LATEST_DIGEST="${{ steps.get-latest-digest-dh.outputs.latest_digest }}"
+
           echo "Built Digest: $BUILT_DIGEST"
-          echo "Latest Digest: $LATEST_DIGEST"
-          if [ "$BUILT_DIGEST" != "$LATEST_DIGEST" ] || [ -z "$LATEST_DIGEST" ]; then
+          echo "Latest Docker Hub Digest: $LATEST_DIGEST"
+
+          # 다이제스트 비교
+          # - 빌드된 다이제스트가 있어야 하고 (빌드/푸시 성공 가정)
+          # - 빌드된 다이제스트가 Docker Hub의 다이제스트와 다르거나,
+          # - Docker Hub 다이제스트가 비어있으면 (이미지가 없거나 조회 실패) 푸시 필요
+          if [ -n "$BUILT_DIGEST" ] && ([ "$BUILT_DIGEST" != "$LATEST_DIGEST" ] || [ -z "$LATEST_DIGEST" ]); then
+            echo "Push required: Digests differ or Docker Hub image/digest not found."
             echo "push_required=true" >> $GITHUB_OUTPUT
           else
+            echo "Push not required: Digests match or built digest is empty."
             echo "push_required=false" >> $GITHUB_OUTPUT
           fi
         shell: bash
 
-      # 5. 이미지 Pull, Tag, Push (조건부 실행)
+      # 6. 이미지 Pull, Tag, Push (조건부 실행)
       - name: Pull GHCR, Tag, and Push image to Docker Hub
+        # check-push-dh 스텝에서 push_required가 true일 때만 실행
         if: steps.check-push-dh.outputs.push_required == 'true'
         env:
           DH_USER: ${{ secrets.dockerhub_username }}
-          DH_REPO: ${{ inputs.dockerhub_repo_name }}
+          DH_REPO: ${{ inputs.dockerhub_repo_name }} # 입력받은 리포 이름 사용
           TAG_SHA: ${{ inputs.image_tag_sha }}
           TAG_LATEST: ${{ inputs.image_tag_latest }}
           GHCR_IMAGE_SHA: ${{ inputs.ghcr_image_uri_sha }} # Pull 대상 GHCR 이미지
@@ -115,24 +140,31 @@ jobs:
           docker pull $GHCR_IMAGE_SHA
           if [ $? -ne 0 ]; then echo "Error: Failed to pull image from GHCR"; exit 1; fi
 
-          # Docker Hub용 전체 이름 구성
+          # Docker Hub용 전체 이름 구성 (사용자명/리포명)
           DH_USER_LC=$(echo "$DH_USER" | tr '[:upper:]' '[:lower:]')
           DH_REPO_LC=$(echo "$DH_REPO" | tr '[:upper:]' '[:lower:]')
           DH_IMAGE_BASE="${DH_USER_LC}/${DH_REPO_LC}"
 
-          echo "Tagging $GHCR_IMAGE_SHA -> $DH_IMAGE_BASE:$TAG_SHA and $DH_IMAGE_BASE:$TAG_LATEST"
+          echo "Tagging $GHCR_IMAGE_SHA for Docker Hub:"
+          echo "  -> $DH_IMAGE_BASE:$TAG_SHA"
           docker tag $GHCR_IMAGE_SHA $DH_IMAGE_BASE:$TAG_SHA
+          echo "  -> $DH_IMAGE_BASE:$TAG_LATEST"
           docker tag $GHCR_IMAGE_SHA $DH_IMAGE_BASE:$TAG_LATEST
 
+          # Docker Hub로 푸시 (재시도 로직은 필요 시 추가 가능)
           echo "Pushing $DH_IMAGE_BASE:$TAG_SHA"
           docker push $DH_IMAGE_BASE:$TAG_SHA
+          if [ $? -ne 0 ]; then echo "Error: Failed to push $DH_IMAGE_BASE:$TAG_SHA"; exit 1; fi # SHA 태그 실패 시 중단
 
           echo "Pushing $DH_IMAGE_BASE:$TAG_LATEST"
           docker push $DH_IMAGE_BASE:$TAG_LATEST
+          if [ $? -ne 0 ]; then echo "Warning: Failed to push $DH_IMAGE_BASE:$TAG_LATEST"; fi # latest 태그 실패는 경고만
+
         shell: bash
 
-      # 6. 푸시 건너뛰기 메시지 (조건부 실행)
+      # 7. 푸시 건너뛰기 메시지 (조건부 실행)
       - name: Image push skipped
+        # check-push-dh 스텝에서 push_required가 false일 때만 실행
         if: steps.check-push-dh.outputs.push_required == 'false'
-        run: echo "Image content has not changed. Skipping Docker Hub push."
+        run: echo "Docker Hub push skipped: Image content digest matches the existing :latest tag or built digest is missing."
         shell: bash

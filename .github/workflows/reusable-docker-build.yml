@@ -29,8 +29,8 @@ on:
 
     outputs:
       image_digest:
-        description: '빌드/푸시된 이미지의 다이제스트 (sha256:...)'
-        value: ${{ jobs.build_image_job.outputs.digest }}
+        description: '빌드/푸시된 이미지의 매니페스트 다이제스트 (sha256:...)' # 설명 수정
+        value: ${{ jobs.build_image_job.outputs.digest }} # build_and_push_ghcr 스텝의 출력 사용
       image_tag_sha:
         description: 'Git SHA 기반 태그 (예: sha-xxxx)'
         value: ${{ jobs.build_image_job.outputs.tag_sha }}
@@ -55,7 +55,7 @@ jobs:
       ecr_image_name_no_tag: ${{ steps.set-names.outputs.ecr_name }}
       dh_repo_name_base_step_output: ${{ steps.set-names.outputs.dh_repo_base }}
       tag_sha: ${{ steps.tag-image.outputs.tag }}
-      digest: ${{ steps.extract-digest.outputs.image_digest }}
+      digest: ${{ steps.build_and_push_ghcr.outputs.digest }} # build_and_push_ghcr 스텝의 출력 사용
       ghcr_uri_sha_output: ${{ steps.set-names.outputs.ghcr_image_sha }}
 
     steps:
@@ -97,16 +97,16 @@ jobs:
           GHCR_REPO_LC=$(echo "$GHCR_REPO_INPUT" | tr '[:upper:]' '[:lower:]')
           GHCR_BASE="ghcr.io/${GHCR_OWNER_LC}/${GHCR_REPO_LC}"
           GHCR_IMAGE_SHA="${GHCR_BASE}:${TAG_SHA}"
-          GHCR_CACHE_REF="${GHCR_BASE}:buildcache"
+          GHCR_CACHE_REF="${GHCR_BASE}:buildcache" # 캐시용 태그는 별도로 유지
 
           echo "ecr_name=$ECR_NAME" >> $GITHUB_OUTPUT
           echo "ghcr_image_sha=$GHCR_IMAGE_SHA" >> $GITHUB_OUTPUT
           echo "ghcr_cache_ref=$GHCR_CACHE_REF" >> $GITHUB_OUTPUT
-          echo "dh_repo_base=$DH_REPO_BASE_INPUT" >> $GITHUB_OUTPUT
+          echo "dh_repo_base=$DH_REPO_BASE_INPUT" >> $GITHUB_OUTPUT # dockerhub_repo_base 입력값을 그대로 출력
         shell: bash
 
       - name: Set up Docker Buildx
-        id: buildx
+        id: buildx # ID는 그대로 유지하거나 변경해도 무방
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
@@ -114,74 +114,57 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
+          password: ${{ github.token }} # GITHUB_TOKEN 사용
 
-      # 현재 GHCR에 있는 이미지의 다이제스트 확인
-      - name: Check existing GHCR image digest
-        id: check-ghcr
-        continue-on-error: true
-        run: |
-          GHCR_IMAGE="${{ steps.set-names.outputs.ghcr_image_sha }}"
-          EXISTING_DIGEST=$(docker manifest inspect $GHCR_IMAGE --verbose 2>/dev/null | jq -r '.Descriptor.digest // ""' || echo "")
-          echo "existing_digest=$EXISTING_DIGEST" >> $GITHUB_OUTPUT
-          echo "Existing GHCR image digest: $EXISTING_DIGEST"
-        shell: bash
+      # 현재 GHCR에 있는 이미지의 매니페스트 다이제스트 확인 (선택적이지만 비교 로직에 유용할 수 있음)
+      # 주의: 이 스텝은 푸시 전에만 의미가 있으므로, 필요 없다면 제거해도 됨.
+      #       단, 푸시 전에 변경 여부를 미리 알고 싶다면 유지할 수 있다.
+      #       하지만 build-push-action 자체가 이미 푸시된 동일 다이제스트는 건너뛰므로, 필수는 아님.
+      # - name: Check existing GHCR image manifest digest (Optional)
+      #   id: check-ghcr
+      #   continue-on-error: true # 이미지가 없거나 접근 불가 시 에러 무시
+      #   run: |
+      #     GHCR_IMAGE="${{ steps.set-names.outputs.ghcr_image_sha }}"
+      #     EXISTING_DIGEST=$(docker manifest inspect $GHCR_IMAGE --verbose 2>/dev/null | jq -r '.Descriptor.digest // ""' || echo "")
+      #     echo "existing_digest=$EXISTING_DIGEST" >> $GITHUB_OUTPUT
+      #     echo "Existing GHCR image manifest digest (before push): $EXISTING_DIGEST"
+      #   shell: bash
 
       # 빌드 및 GHCR 푸시 (개선된 캐싱 설정)
       - name: Build and push to GHCR with Cache
-        id: build-push
+        id: build_and_push_ghcr # ID 변경
         uses: docker/build-push-action@v5
         with:
           context: .
+          # GHCR에 푸시할 태그 지정 (SHA 태그)
           tags: ${{ steps.set-names.outputs.ghcr_image_sha }}
-          push: true
+          push: true # 항상 GHCR에는 푸시 (캐싱 및 후속 작업 기반)
+          # GHCR을 캐시 소스 및 대상으로 사용
           cache-from: type=registry,ref=${{ steps.set-names.outputs.ghcr_cache_ref }}
+          # 캐시 저장 설정 (mode=min: 변경된 레이어만 저장, max: 모든 레이어 저장)
           cache-to: type=registry,ref=${{ steps.set-names.outputs.ghcr_cache_ref }},mode=min
-          provenance: false
-          sbom: false
+          provenance: false # SBOM/Provenance 비활성화 (필요 시 true)
+          sbom: false      # SBOM/Provenance 비활성화 (필요 시 true)
+          # BuildKit 인라인 캐시 활성화 및 빌드 인수 전달
           build-args: |
             BUILDKIT_INLINE_CACHE=1
             BUILD_ID=${{ steps.build-id.outputs.source_hash }}
             BUILD_DATE=${{ steps.build-id.outputs.build_date }}
             GIT_COMMIT=${{ github.sha }}
+          # 이미지 레이블 설정
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             build.id=${{ steps.build-id.outputs.source_hash }}
             build.date=${{ steps.build-id.outputs.build_date }}
 
-      # 이미지 다이제스트 추출 - skopeo 사용
-      - name: Install skopeo
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y skopeo
-        shell: bash
-
-      - name: Extract image digest using skopeo
-        id: extract-digest
-        run: |
-          # Registry 인증정보 활용하여 skopeo inspect 실행
-          GHCR_IMAGE="${{ steps.set-names.outputs.ghcr_image_sha }}"
-          
-          # skopeo를 사용하여 컨텐츠 다이제스트만 추출 (메타데이터 제외)
-          IMAGE_DIGEST=$(skopeo inspect --raw docker://$GHCR_IMAGE | jq -r '.config.digest')
-          
-          echo "Extracted content digest: $IMAGE_DIGEST"
-          echo "image_digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
-          
-          # 기존 다이제스트와 비교
-          if [ "$IMAGE_DIGEST" == "${{ steps.check-ghcr.outputs.existing_digest }}" ]; then
-            echo "Image content is identical to existing image"
-          else
-            echo "Image content has changed from existing image"
-          fi
-        shell: bash
+      # --- skopeo 설치 및 다이제스트 추출 스텝 제거됨 ---
 
       # build-push-action의 digest 출력 확인 (디버깅용)
       - name: Debug image info
-        if: always()
+        if: always() # 항상 실행하여 정보 확인
         run: |
           echo "Image pushed to GHCR: ${{ steps.set-names.outputs.ghcr_image_sha }}"
-          echo "Build-push action digest: ${{ steps.build-push.outputs.digest }}"
-          echo "Extracted content digest: ${{ steps.extract-digest.outputs.image_digest }}"
+          echo "Build-push action manifest digest: ${{ steps.build_and_push_ghcr.outputs.digest }}" # 수정된 스텝 ID와 출력 참조
+          # echo "Extracted content digest: ..." 라인 제거됨
         shell: bash
