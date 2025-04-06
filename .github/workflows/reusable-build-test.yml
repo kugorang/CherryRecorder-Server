@@ -8,7 +8,7 @@ on:
 jobs:
   build_job:
     name: Build and Test C++ Code
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # 1. 빌드 의존성 설치 (jq 포함)
       - name: Install Build Dependencies (inc. jq)

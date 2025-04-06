@@ -21,7 +21,7 @@ on:
 jobs:
   push_ecr_job:
     name: Pull GHCR, Check Digest, Push to ECR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       id-token: write # OIDC 필수 권한
       packages: read  # GHCR 이미지 풀링 권한

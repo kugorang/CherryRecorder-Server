@@ -100,7 +100,7 @@ jobs:
   # 문서가 '새로 생성되었을 경우에만' GitHub Pages로 배포합니다.
   deploy_docs_pages:
     name: 3. Deploy Docs to GitHub Pages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: call_docs_build  # Job 2 (문서 생성/캐싱) 완료 후 실행
     # call_docs_build 작업의 docs-generated 출력이 'true'일 때만 이 작업을 실행
     if: needs.call_docs_build.outputs.docs-generated == 'true'

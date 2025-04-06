@@ -8,7 +8,7 @@ on:
 jobs:
   docs_job:
     name: Generate and Upload Doxygen Docs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Job 출력: 문서가 새로 생성되었는지 여부
     outputs:
       docs-generated: ${{ steps.generate_docs.outputs.executed }}
@@ -66,5 +66,5 @@ jobs:
         if: always() # 항상 실행되도록 설정
         run: |
           echo "Cache hit: ${{ steps.cache-docs.outputs.cache-hit }}"
-          # echo "Docs generated in this run: ${{ steps.generate_docs.outputs.executed }}"
+          echo "Docs generated in this run: ${{ steps.generate_docs.outputs.executed }}"
         shell: bash

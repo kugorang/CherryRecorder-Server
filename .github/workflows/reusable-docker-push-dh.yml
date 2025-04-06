@@ -43,7 +43,7 @@ on:
 jobs:
   push_dh_job:
     name: Pull GHCR, Check Digest, Push to Docker Hub
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       pushed_output: ${{ steps.check-push-dh.outputs.push_required }} # 스텝 출력을 job 출력으로 매핑
 

@@ -50,7 +50,7 @@ on:
 jobs:
   build_image_job:
     name: Build, Cache, Push GHCR, Get Info
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       packages: write # GHCR 푸시/캐시 권한
       contents: read

@@ -52,7 +52,7 @@ on:
 jobs:
   deploy_job:
     name: Deploy to AWS ECS
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # OIDC 인증 및 템플릿 파일 읽기 권한
     permissions:
       id-token: write # OIDC 인증 위해 필요

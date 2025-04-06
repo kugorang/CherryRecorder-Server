@@ -41,7 +41,7 @@ on:
 jobs:
   check_job:
     name: Check Connection to Server Ports
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # 1. 필요한 도구 설치 (netcat, curl)
       - name: Install netcat and curl
