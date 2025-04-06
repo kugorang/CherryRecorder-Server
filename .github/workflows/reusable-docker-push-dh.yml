@@ -1,27 +1,52 @@
 # .github/workflows/reusable-docker-push-dh.yml
-# 목적: 빌드된 Docker 이미지를 Docker Hub로 조건부 푸시합니다.
-name: Reusable - Push Docker Image to Docker Hub (Conditional)
+# 목적: GHCR에서 이미지를 풀링하고, 다이제스트 비교 후 변경 시 Docker Hub로 푸시합니다.
+name: Reusable - Pull GHCR & Push Docker Image to Docker Hub (Conditional)
 
 on:
   workflow_call:
     inputs:
-      # Docker Hub 리포지토리 전체 이름 (예: username/reponame)
+      # Docker Hub 기본 리포 이름 (예: cherryrecorder-server)
       dockerhub_repo_name:
+        description: 'Base Docker Hub repository name (without username)'
         required: true
         type: string
-      image_tag_sha: { required: true, type: string }
-      image_tag_latest: { required: true, type: string }
-      local_image_tag_built: { required: true, type: string }
-      image_digest_built: { required: true, type: string }
+      image_tag_sha:
+        description: 'Image tag based on Git SHA (e.g., sha-xxxx)'
+        required: true
+        type: string
+      image_tag_latest:
+        description: 'The :latest tag string'
+        required: true
+        type: string
+        default: 'latest'
+      image_digest_built:
+        description: 'Digest of the image built (sha256:...)'
+        required: true
+        type: string
+      # Pull 대상 GHCR 이미지 URI (SHA 태그 포함)
+      ghcr_image_uri_sha:
+        description: 'Full URI of the image in GHCR with SHA tag (for pulling)'
+        required: true
+        type: string
     secrets:
-      # Docker Hub 로그인 정보
-      dockerhub_username: { required: true }
-      dockerhub_token: { required: true }
+      dockerhub_username:
+        description: 'Docker Hub username'
+        required: true
+      dockerhub_token:
+        description: 'Docker Hub access token'
+        required: true
+    outputs: # 푸시 실행 여부 출력
+      pushed:
+        description: "'true' if image was pushed, 'false' otherwise"
+        value: ${{ jobs.push_dh_job.outputs.pushed_output }}
 
 jobs:
   push_dh_job:
-    name: Check Digest and Push to Docker Hub
+    name: Pull GHCR, Check Digest, Push to Docker Hub
     runs-on: ubuntu-latest
+    outputs:
+      pushed_output: ${{ steps.check-push-dh.outputs.push_required }} # 스텝 출력을 job 출력으로 매핑
+
     steps:
       # 1. Docker Hub 로그인
       - name: Log in to Docker Hub
@@ -30,12 +55,23 @@ jobs:
           username: ${{ secrets.dockerhub_username }}
           password: ${{ secrets.dockerhub_token }}
 
-      # 2. Docker Hub의 :latest 태그 다이제스트 조회 (오류 무시)
+      # 2. GHCR 로그인 (Public은 불필요, Private은 PAT 또는 GITHUB_TOKEN 필요)
+      - name: Log in to GitHub Container Registry (for pull)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      # 3. Docker Hub의 :latest 태그 다이제스트 조회
       - name: Get Docker Hub :latest image digest
         id: get-latest-digest-dh
+        env: # 스크립트 내에서 전체 이름 구성
+          DH_USER: ${{ secrets.dockerhub_username }}
+          DH_REPO: ${{ inputs.dockerhub_repo_name }}
         run: |
-          DH_USER_LC=$(echo "${{ secrets.dockerhub_username }}" | tr '[:upper:]' '[:lower:]')
-          DH_REPO_LC=$(echo "${{ inputs.dockerhub_repo_name }}" | tr '[:upper:]' '[:lower:]')
+          DH_USER_LC=$(echo "$DH_USER" | tr '[:upper:]' '[:lower:]')
+          DH_REPO_LC=$(echo "$DH_REPO" | tr '[:upper:]' '[:lower:]')
           DH_IMAGE_LATEST="${DH_USER_LC}/${DH_REPO_LC}:latest"
           echo "Checking digest for Docker Hub image: $DH_IMAGE_LATEST"
           LATEST_DIGEST=$(docker manifest inspect $DH_IMAGE_LATEST --verbose 2>/dev/null | jq -r '.Descriptor.digest // ""' || echo "")
@@ -43,7 +79,7 @@ jobs:
           echo "latest_digest=$LATEST_DIGEST" >> $GITHUB_OUTPUT
         shell: bash
 
-      # 3. 다이제스트 비교 및 푸시 결정
+      # 4. 다이제스트 비교 및 푸시 결정
       - name: Check digests and set push flag
         id: check-push-dh
         run: |
@@ -52,28 +88,34 @@ jobs:
           echo "Built Digest: $BUILT_DIGEST"
           echo "Latest Digest: $LATEST_DIGEST"
           if [ "$BUILT_DIGEST" != "$LATEST_DIGEST" ] || [ -z "$LATEST_DIGEST" ]; then
-            echo "Digests differ or :latest not found. Push required."
             echo "push_required=true" >> $GITHUB_OUTPUT
           else
-            echo "Digests match. No push required."
             echo "push_required=false" >> $GITHUB_OUTPUT
           fi
         shell: bash
 
-      # 4. 태그 지정 및 푸시 (조건부 실행)
-      - name: Tag and Push image to Docker Hub
+      # 5. 이미지 Pull, Tag, Push (조건부 실행)
+      - name: Pull GHCR, Tag, and Push image to Docker Hub
         if: steps.check-push-dh.outputs.push_required == 'true'
         env:
-          DH_USER_LC: $(echo "${{ secrets.dockerhub_username }}" | tr '[:upper:]' '[:lower:]')
-          DH_REPO_LC: $(echo "${{ inputs.dockerhub_repo_name }}" | tr '[:upper:]' '[:lower:]')
-          DH_IMAGE_BASE: "${DH_USER_LC}/${DH_REPO_LC}"
+          DH_USER: ${{ secrets.dockerhub_username }}
+          DH_REPO: ${{ inputs.dockerhub_repo_name }}
           TAG_SHA: ${{ inputs.image_tag_sha }}
           TAG_LATEST: ${{ inputs.image_tag_latest }}
-          LOCAL_IMAGE: ${{ inputs.local_image_tag_built }}
+          GHCR_IMAGE_SHA: ${{ inputs.ghcr_image_uri_sha }} # Pull 대상 GHCR 이미지
         run: |
-          echo "Tagging $LOCAL_IMAGE -> $DH_IMAGE_BASE:$TAG_SHA and $DH_IMAGE_BASE:$TAG_LATEST"
-          docker tag $LOCAL_IMAGE $DH_IMAGE_BASE:$TAG_SHA
-          docker tag $LOCAL_IMAGE $DH_IMAGE_BASE:$TAG_LATEST
+          echo "Pulling image from GHCR: $GHCR_IMAGE_SHA"
+          docker pull $GHCR_IMAGE_SHA
+          if [ $? -ne 0 ]; then echo "Error: Failed to pull image from GHCR"; exit 1; fi
+
+          # Docker Hub용 전체 이름 구성
+          DH_USER_LC=$(echo "$DH_USER" | tr '[:upper:]' '[:lower:]')
+          DH_REPO_LC=$(echo "$DH_REPO" | tr '[:upper:]' '[:lower:]')
+          DH_IMAGE_BASE="${DH_USER_LC}/${DH_REPO_LC}"
+
+          echo "Tagging $GHCR_IMAGE_SHA -> $DH_IMAGE_BASE:$TAG_SHA and $DH_IMAGE_BASE:$TAG_LATEST"
+          docker tag $GHCR_IMAGE_SHA $DH_IMAGE_BASE:$TAG_SHA
+          docker tag $GHCR_IMAGE_SHA $DH_IMAGE_BASE:$TAG_LATEST
 
           echo "Pushing $DH_IMAGE_BASE:$TAG_SHA"
           docker push $DH_IMAGE_BASE:$TAG_SHA
@@ -82,7 +124,7 @@ jobs:
           docker push $DH_IMAGE_BASE:$TAG_LATEST
         shell: bash
 
-      # 5. 푸시 건너뛰기 메시지 (조건부 실행)
+      # 6. 푸시 건너뛰기 메시지 (조건부 실행)
       - name: Image push skipped
         if: steps.check-push-dh.outputs.push_required == 'false'
         run: echo "Image content has not changed. Skipping Docker Hub push."
