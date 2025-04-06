@@ -166,5 +166,6 @@ jobs:
       - name: Image push skipped
         # check-push-dh 스텝에서 push_required가 false일 때만 실행
         if: steps.check-push-dh.outputs.push_required == 'false'
-        run: echo "Docker Hub push skipped: Image content digest matches the existing :latest tag or built digest is missing."
+        run: |
+            echo "Docker Hub push skipped: Image content digest matches the existing :latest tag or built digest is missing."
         shell: bash
