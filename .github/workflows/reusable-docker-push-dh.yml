@@ -63,22 +63,29 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
 
-      # 3. Docker Hub의 :latest 태그 다이제스트 조회
-      - name: Get Docker Hub :latest image digest
-        id: get-latest-digest-dh
-        env: # 스크립트 내에서 전체 이름 구성
-          DH_USER: ${{ secrets.dockerhub_username }}
-          DH_REPO: ${{ inputs.dockerhub_repo_name }}
+      - name: Install skopeo
         run: |
-          DH_USER_LC=$(echo "$DH_USER" | tr '[:upper:]' '[:lower:]')
-          DH_REPO_LC=$(echo "$DH_REPO" | tr '[:upper:]' '[:lower:]')
-          DH_IMAGE_LATEST="${DH_USER_LC}/${DH_REPO_LC}:latest"
-          echo "Checking digest for Docker Hub image: $DH_IMAGE_LATEST"
-          LATEST_DIGEST=$(docker manifest inspect $DH_IMAGE_LATEST --verbose 2>/dev/null | jq -r '.Descriptor.digest // ""' || echo "")
-          echo "Current :latest digest in Docker Hub: $LATEST_DIGEST"
-          echo "latest_digest=$LATEST_DIGEST" >> $GITHUB_OUTPUT
-        shell: bash
+          sudo apt-get update
+          sudo apt-get install -y skopeo
 
+      # 3. Docker Hub의 :latest 태그 다이제스트 조회
+      - name: Get Docker Hub image digest
+        id: get-latest-digest-dh
+        env:
+            DH_USER: ${{ secrets.dockerhub_username }}
+            DH_REPO: ${{ inputs.dockerhub_repo_name }}
+        run: |
+            DH_USER_LC=$(echo "$DH_USER" | tr '[:upper:]' '[:lower:]')
+            DH_REPO_LC=$(echo "$DH_REPO" | tr '[:upper:]' '[:lower:]')
+            DH_IMAGE_LATEST="${DH_USER_LC}/${DH_REPO_LC}:latest"
+    
+            echo "Checking digest for Docker Hub image: $DH_IMAGE_LATEST"
+            LATEST_DIGEST=$(skopeo inspect docker://$DH_IMAGE_LATEST --raw 2>/dev/null | jq -r '.config.digest // ""' || echo "")
+    
+            echo "Current :latest digest in Docker Hub: $LATEST_DIGEST"
+            echo "Digest length: ${#LATEST_DIGEST}"
+            echo "latest_digest=$LATEST_DIGEST" >> $GITHUB_OUTPUT
+            
       # 4. 다이제스트 비교 및 푸시 결정
       - name: Check digests and set push flag
         id: check-push-dh

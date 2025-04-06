@@ -104,7 +104,7 @@ jobs:
         run: |
           # GHCR 이미지 콘텐츠 다이제스트 확인
           GHCR_IMAGE="${{ inputs.ghcr_image_uri_sha }}"
-          BUILT_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://$GHCR_IMAGE 2>/dev/null || echo "")
+          BUILT_DIGEST=$(skopeo inspect docker://$GHCR_IMAGE --raw | jq -r '.config.digest' 2>/dev/null || echo "")
           
           # ECR 이미지 존재 여부 및 다이제스트 확인
           ECR_IMAGE_LATEST="${{ inputs.image_name_ecr }}:latest"
@@ -116,6 +116,12 @@ jobs:
           else
             echo "No existing image found in ECR"
           fi
+
+          echo "GHCR digest: $BUILT_DIGEST"
+          echo "ECR digest: $LATEST_DIGEST"
+
+          echo "GHCR digest length: ${#BUILT_DIGEST}"
+          echo "ECR digest length: ${#LATEST_DIGEST}"
           
           # 다이제스트 비교
           if [ "$BUILT_DIGEST" != "$LATEST_DIGEST" ] || [ -z "$LATEST_DIGEST" ]; then
@@ -126,7 +132,6 @@ jobs:
             echo "push_required=false" >> $GITHUB_OUTPUT
           fi
         shell: bash
-        continue-on-error: true
 
       # 푸시 실패 시 재시도 로직 추가
       - name: Pull from GHCR, Tag, and Push image to ECR
@@ -185,14 +190,4 @@ jobs:
       - name: Image push skipped
         if: steps.check-push.outputs.push_required == 'false'
         run: echo "Image content has not changed. Skipping ECR push."
-        shell: bash
-
-      - name: Set explicit outputs
-        if: always()
-        run: |
-          if [ "${{ steps.check-push.outputs.push_required }}" == "true" ]; then
-            echo "pushed_output=true" >> $GITHUB_OUTPUT
-          else
-            echo "pushed_output=false" >> $GITHUB_OUTPUT
-          fi
         shell: bash

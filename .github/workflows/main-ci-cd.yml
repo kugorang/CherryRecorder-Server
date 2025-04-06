@@ -182,18 +182,6 @@ jobs:
     # outputs: # 푸시 발생 여부 필요 시
     #  pushed: ${{ jobs.push_ecr_job.outputs.pushed }}
 
-  # call_push_ecr 직후, call_deploy_aws 직전에 추가
-  debug_outputs:
-    name: Debug Outputs
-    runs-on: ubuntu-latest
-    needs: call_push_ecr
-    if: always()
-    steps:
-      - name: Print outputs
-        run: |
-          echo "ECR Push Result: ${{ needs.call_push_ecr.result }}"
-          echo "ECR Pushed Output: <${{ needs.call_push_ecr.outputs.pushed }}>"
-
   # --- 7. AWS ECS 배포 ---
   call_deploy_aws:
     name: 7. Deploy Application to AWS ECS
