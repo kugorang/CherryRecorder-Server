@@ -167,8 +167,8 @@ jobs:
       image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
       image_tag_latest: 'latest'
       aws_region: ${{ vars.AWS_REGION }}
-      local_image_tag_built: ${{ needs.call_docker_build.outputs.local_image_tag }}
       image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }}
+      ghcr_image_uri_sha: ${{ needs.call_docker_build.outputs.ghcr_image_uri_sha }} # 빌드 Job의 출력 참조
     secrets:
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
 
