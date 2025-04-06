@@ -9,7 +9,7 @@ on:
       image_tag_sha: { required: true, type: string }
       image_tag_latest: { required: true, type: string }
       aws_region: { required: true, type: string }
-      local_image_tag_built: # 빌드된 로컬 이미지 태그 (예: localbuild:sha-...)
+      image_digest_built: # 빌드된 로컬 이미지 태그 (예: localbuild:sha-...)
         required: true
         type: string
       ghcr_image_uri_sha: # GHCR 이미지 전체 URI + SHA 태그 (예: ghcr.io/owner/repo:sha-...)
