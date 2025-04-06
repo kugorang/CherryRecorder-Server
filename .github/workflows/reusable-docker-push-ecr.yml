@@ -186,3 +186,13 @@ jobs:
         if: steps.check-push.outputs.push_required == 'false'
         run: echo "Image content has not changed. Skipping ECR push."
         shell: bash
+
+      - name: Set explicit outputs
+        if: always()
+        run: |
+          if [ "${{ steps.check-push.outputs.push_required }}" == "true" ]; then
+            echo "pushed_output=true" >> $GITHUB_OUTPUT
+          else
+            echo "pushed_output=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
