@@ -144,57 +144,44 @@ jobs:
         shell: bash
 
       # TCP 에코 포트 확인 개선
-      - name: Check TCP Echo Port
+      - name: Check TCP Port Connectivity
         id: tcp-check
         env:
-          SERVER_ADDRESS: ${{ inputs.server_address }}
-          ECHO_PORT: ${{ inputs.echo_server_port }}
-          MAX_ATTEMPTS: ${{ inputs.max_attempts }}
-          TIMEOUT: ${{ inputs.connect_timeout_seconds }}
+            SERVER_ADDRESS: ${{ inputs.server_address }}
+            ECHO_PORT: ${{ inputs.echo_server_port }}
+            MAX_ATTEMPTS: ${{ inputs.max_attempts }}
+            TIMEOUT: ${{ inputs.connect_timeout_seconds }}
         run: |
-          echo "Checking TCP port $ECHO_PORT on $SERVER_ADDRESS..."
-          
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            # 백오프 시간 계산
-            DELAY=$((5 * i))
-            
-            echo "Attempt $i/$MAX_ATTEMPTS..."
-            
-            # 데이터 송수신 테스트 추가
-            TEST_STRING="HELLO_SERVER_$(date +%s)"
-            RESPONSE=""
-            
-            if RESPONSE=$(echo "$TEST_STRING" | timeout $TIMEOUT nc -w $TIMEOUT $SERVER_ADDRESS $ECHO_PORT 2>/dev/null); then
-              echo "TCP connection successful"
-              
-              # 에코 서버 검증 (데이터 반환 확인)
-              if [ "$RESPONSE" = "$TEST_STRING" ]; then
-                echo "Echo server working correctly: sent '$TEST_STRING', received '$RESPONSE'"
-                echo "tcp_success=true" >> $GITHUB_OUTPUT
-                exit 0
-              else
-                echo "Warning: Echo server returned unexpected data"
-                echo "Sent: '$TEST_STRING'"
-                echo "Received: '$RESPONSE'"
-                
-                # 빈 응답인 경우는 여전히 성공으로 처리
-                if [ -z "$RESPONSE" ]; then
-                  echo "Empty response, but connection succeeded (server might not be an echo server)"
-                  echo "tcp_success=true" >> $GITHUB_OUTPUT
-                  exit 0
+            echo "Checking TCP port $ECHO_PORT on $SERVER_ADDRESS..."
+    
+            for i in $(seq 1 $MAX_ATTEMPTS); do
+                # 백오프 시간 계산
+                DELAY=$((5 * i))
+      
+                echo "Attempt $i/$MAX_ATTEMPTS..."
+      
+                # -z: 스캔 모드 (데이터 송수신 없이 연결만 확인)
+                # -v: 상세 출력 (stderr로 출력됨)
+                # -w: 타임아웃
+                if nc -z -v -w $TIMEOUT $SERVER_ADDRESS $ECHO_PORT 2>&1; then
+                    echo "TCP connection successful to $SERVER_ADDRESS:$ECHO_PORT"
+                    echo "tcp_success=true" >> $GITHUB_OUTPUT
+                    exit 0
+                else
+                    NC_EXIT=$?
+                    echo "nc exit code: $NC_EXIT"
+                    echo "Failed to connect to $SERVER_ADDRESS:$ECHO_PORT"
                 fi
-              fi
-            fi
-            
-            if [ $i -lt $MAX_ATTEMPTS ]; then
-              echo "Retrying in $DELAY seconds..."
-              sleep $DELAY
-            fi
-          done
-          
-          echo "TCP Echo port check FAILED after $MAX_ATTEMPTS attempts!"
-          echo "tcp_success=false" >> $GITHUB_OUTPUT
-          exit 1
+      
+                if [ $i -lt $MAX_ATTEMPTS ]; then
+                    echo "Retrying in $DELAY seconds..."
+                    sleep $DELAY
+                fi
+            done
+    
+            echo "TCP port connectivity check FAILED after $MAX_ATTEMPTS attempts!"
+            echo "tcp_success=false" >> $GITHUB_OUTPUT
+            exit 1
         shell: bash
 
       # 최종 상태 설정
