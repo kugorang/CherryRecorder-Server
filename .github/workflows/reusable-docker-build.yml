@@ -17,12 +17,10 @@ on:
         description: 'AWS ECR repository name'
         required: true
         type: string
-      # Docker Hub 기본 리포 이름 (main-ci-cd.yml -> 이 워크플로우 -> main-ci-cd.yml -> push-dh 로 전달 위함)
       dockerhub_repo_base:
         description: 'Base Docker Hub repository name (without username)'
         required: true
         type: string
-      # GHCR 리포 이름 (선택적, 기본값: GitHub 리포 이름)
       ghcr_repo_name:
         description: 'GHCR repository name (defaults to GitHub repo name)'
         required: false
@@ -39,7 +37,6 @@ on:
       image_name_ecr:
         description: 'ECR용 전체 이미지 이름 (태그 제외)'
         value: ${{ jobs.build_image_job.outputs.ecr_image_name_no_tag }}
-      # Docker Hub 기본 리포 이름 출력 (main-ci-cd.yml 거쳐 push-dh로 전달)
       dh_repo_name_base_output:
         description: 'Base Docker Hub repository name output'
         value: ${{ jobs.build_image_job.outputs.dh_repo_name_base_step_output }}
@@ -55,20 +52,31 @@ jobs:
       packages: write # GHCR 푸시/캐시 권한
       contents: read
     outputs:
-      # 스텝 출력을 Job 출력으로 매핑
       ecr_image_name_no_tag: ${{ steps.set-names.outputs.ecr_name }}
-      dh_repo_name_base_step_output: ${{ steps.set-names.outputs.dh_repo_base }} # 이름 변경
+      dh_repo_name_base_step_output: ${{ steps.set-names.outputs.dh_repo_base }}
       tag_sha: ${{ steps.tag-image.outputs.tag }}
-      digest: ${{ steps.build-push.outputs.digest }} # build-push 액션의 digest 출력 사용
-      ghcr_uri_sha_output: ${{ steps.set-names.outputs.ghcr_image_sha }} # 구성된 GHCR URI + 태그
+      digest: ${{ steps.extract-digest.outputs.image_digest }}
+      ghcr_uri_sha_output: ${{ steps.set-names.outputs.ghcr_image_sha }}
 
     steps:
       - name: Check out source code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set Image Tag (SHA)
         id: tag-image
         run: echo "tag=sha-${{ github.sha }}" >> $GITHUB_OUTPUT
+        shell: bash
+
+      # 소스 코드로부터 빌드 ID 생성 (변경 시에만 달라지도록)
+      - name: Generate Build ID from source
+        id: build-id
+        run: |
+          # 소스 파일의 해시 생성 (Dockerfile, 소스 코드 등)
+          SOURCE_HASH=$(find . -type f -not -path "./.git/*" -not -path "./out/*" -not -path "./build/*" | sort | xargs sha256sum | sha256sum | cut -d' ' -f1)
+          echo "source_hash=${SOURCE_HASH}" >> $GITHUB_OUTPUT
+          echo "build_date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Set Image Names (ECR, GHCR) and Output Base DH Name
@@ -77,9 +85,9 @@ jobs:
           AWS_ACCOUNT_ID: ${{ inputs.aws_account_id }}
           AWS_REGION: ${{ inputs.aws_region }}
           ECR_REPO: ${{ inputs.ecr_repo }}
-          DH_REPO_BASE_INPUT: ${{ inputs.dockerhub_repo_base }} # 입력 받은 기본 이름
+          DH_REPO_BASE_INPUT: ${{ inputs.dockerhub_repo_base }}
           REPO_OWNER: ${{ github.repository_owner }}
-          GHCR_REPO_INPUT: ${{ inputs.ghcr_repo_name }} # 입력값 사용
+          GHCR_REPO_INPUT: ${{ inputs.ghcr_repo_name }}
           TAG_SHA: ${{ steps.tag-image.outputs.tag }}
         run: |
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
@@ -89,11 +97,12 @@ jobs:
           GHCR_REPO_LC=$(echo "$GHCR_REPO_INPUT" | tr '[:upper:]' '[:lower:]')
           GHCR_BASE="ghcr.io/${GHCR_OWNER_LC}/${GHCR_REPO_LC}"
           GHCR_IMAGE_SHA="${GHCR_BASE}:${TAG_SHA}"
+          GHCR_CACHE_REF="${GHCR_BASE}:buildcache"
 
           echo "ecr_name=$ECR_NAME" >> $GITHUB_OUTPUT
           echo "ghcr_image_sha=$GHCR_IMAGE_SHA" >> $GITHUB_OUTPUT
-          echo "ghcr_cache_ref=${GHCR_BASE}:buildcache" >> $GITHUB_OUTPUT
-          echo "dh_repo_base=$DH_REPO_BASE_INPUT" >> $GITHUB_OUTPUT # 입력받은 DH 기본 이름 출력
+          echo "ghcr_cache_ref=$GHCR_CACHE_REF" >> $GITHUB_OUTPUT
+          echo "dh_repo_base=$DH_REPO_BASE_INPUT" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Set up Docker Buildx
@@ -107,27 +116,72 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
 
+      # 현재 GHCR에 있는 이미지의 다이제스트 확인
+      - name: Check existing GHCR image digest
+        id: check-ghcr
+        continue-on-error: true
+        run: |
+          GHCR_IMAGE="${{ steps.set-names.outputs.ghcr_image_sha }}"
+          EXISTING_DIGEST=$(docker manifest inspect $GHCR_IMAGE --verbose 2>/dev/null | jq -r '.Descriptor.digest // ""' || echo "")
+          echo "existing_digest=$EXISTING_DIGEST" >> $GITHUB_OUTPUT
+          echo "Existing GHCR image digest: $EXISTING_DIGEST"
+        shell: bash
+
+      # 빌드 및 GHCR 푸시 (개선된 캐싱 설정)
       - name: Build and push to GHCR with Cache
         id: build-push
         uses: docker/build-push-action@v5
         with:
           context: .
-          # GHCR 푸시 및 캐시용 태그 지정
           tags: ${{ steps.set-names.outputs.ghcr_image_sha }}
-          push: true # GHCR에는 항상 푸시 (캐시 및 다음 단계용)
-          # GHCR 캐시 사용
+          push: true
           cache-from: type=registry,ref=${{ steps.set-names.outputs.ghcr_cache_ref }}
-          cache-to: type=registry,ref=${{ steps.set-names.outputs.ghcr_cache_ref }},mode=max
-          # 메타데이터에서 Digest 추출 위해 필요
-          provenance: false # 필요 시 true로 변경 (digest 추출 방식 달라질 수 있음)
+          cache-to: type=registry,ref=${{ steps.set-names.outputs.ghcr_cache_ref }},mode=min
+          provenance: false
           sbom: false
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+            BUILD_ID=${{ steps.build-id.outputs.source_hash }}
+            BUILD_DATE=${{ steps.build-id.outputs.build_date }}
+            GIT_COMMIT=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            build.id=${{ steps.build-id.outputs.source_hash }}
+            build.date=${{ steps.build-id.outputs.build_date }}
 
-      # build-push 액션 v5는 digest를 output으로 제공함
-      - name: Check Digest Output
+      # 이미지 다이제스트 추출 - skopeo 사용
+      - name: Install skopeo
         run: |
-          echo "Image pushed to GHCR with digest: ${{ steps.build-push.outputs.digest }}"
-          if [ -z "${{ steps.build-push.outputs.digest }}" ]; then
-            echo "Error: Failed to get digest from build-push action output."
-            exit 1
+          sudo apt-get update
+          sudo apt-get install -y skopeo
+        shell: bash
+
+      - name: Extract image digest using skopeo
+        id: extract-digest
+        run: |
+          # Registry 인증정보 활용하여 skopeo inspect 실행
+          GHCR_IMAGE="${{ steps.set-names.outputs.ghcr_image_sha }}"
+          
+          # skopeo를 사용하여 컨텐츠 다이제스트만 추출 (메타데이터 제외)
+          IMAGE_DIGEST=$(skopeo inspect --raw docker://$GHCR_IMAGE | jq -r '.config.digest')
+          
+          echo "Extracted content digest: $IMAGE_DIGEST"
+          echo "image_digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
+          
+          # 기존 다이제스트와 비교
+          if [ "$IMAGE_DIGEST" == "${{ steps.check-ghcr.outputs.existing_digest }}" ]; then
+            echo "Image content is identical to existing image"
+          else
+            echo "Image content has changed from existing image"
           fi
+        shell: bash
+
+      # build-push-action의 digest 출력 확인 (디버깅용)
+      - name: Debug image info
+        if: always()
+        run: |
+          echo "Image pushed to GHCR: ${{ steps.set-names.outputs.ghcr_image_sha }}"
+          echo "Build-push action digest: ${{ steps.build-push.outputs.digest }}"
+          echo "Extracted content digest: ${{ steps.extract-digest.outputs.image_digest }}"
         shell: bash

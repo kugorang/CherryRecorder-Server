@@ -103,7 +103,9 @@ jobs:
     runs-on: ubuntu-24.04
     needs: call_docs_build  # Job 2 (문서 생성/캐싱) 완료 후 실행
     # call_docs_build 작업의 docs-generated 출력이 'true'일 때만 이 작업을 실행
-    if: needs.call_docs_build.outputs.docs-generated == 'true'
+    if: |
+        needs.call_docs_build.result == 'success' &&
+        needs.call_docs_build.outputs.docs-generated == 'true'
     permissions: { pages: write, id-token: write }  # Pages 배포 권한
     environment:
       name: github-pages
@@ -186,7 +188,7 @@ jobs:
     # ECR 푸시 Job이 성공했고('success') *그리고* 실제로 푸시가 발생했을 때('true')만 실행
     if: |
       needs.call_push_ecr.result == 'success' &&
-      needs.call_push_ecr.outputs.pushed_result == 'true'
+      needs.call_push_ecr.outputs.pushed == 'true'
     uses: ./.github/workflows/reusable-deploy-aws.yml
     needs:
       - call_docker_build # 이미지 정보 필요

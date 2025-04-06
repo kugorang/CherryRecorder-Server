@@ -1,11 +1,8 @@
 # .github/workflows/reusable-connection-check.yml
-# 목적: 배포된 서버의 HTTP 및 TCP 포트 연결 상태를 확인합니다.
-#      (HTTP: /health 경로 2xx 응답 확인, TCP: 포트 연결 확인)
 name: Reusable - Connection Check (HTTP & TCP)
 
 on:
   workflow_call:
-    # 입력값 정의 (secrets 대신 inputs 사용 권장)
     inputs:
       server_address:
         description: '배포된 서버의 주소 (NLB DNS 이름 또는 IP)'
@@ -15,18 +12,17 @@ on:
         description: 'HTTP Health Check 포트 번호'
         required: true
         type: string
-        default: "8080" # 기본값 설정
+        default: "8080"
       echo_server_port:
         description: 'TCP Echo 서버 포트 번호'
         required: true
         type: string
-        default: "33333" # 기본값 설정
-      # 재시도 및 타임아웃 설정 (선택적)
+        default: "33333"
       max_attempts:
         description: '최대 연결 시도 횟수'
         required: false
         type: string
-        default: '6' # 서비스 시작 시간 등을 고려하여 약간 늘림
+        default: '6'
       retry_delay_seconds:
         description: '재시도 간 지연 시간 (초)'
         required: false
@@ -37,78 +33,185 @@ on:
         required: false
         type: string
         default: '5'
+      expected_http_response:
+        description: 'HTTP 응답에서 기대하는 내용 (옵션)'
+        required: false
+        type: string
+        default: ''
+    outputs:
+      connection_status:
+        description: '연결 확인 결과 (success/fail)'
+        value: ${{ jobs.check_job.outputs.status }}
 
 jobs:
   check_job:
     name: Check Connection to Server Ports
     runs-on: ubuntu-24.04
+    outputs:
+      status: ${{ steps.set-status.outputs.final_status }}
     steps:
-      # 1. 필요한 도구 설치 (netcat, curl)
-      - name: Install netcat and curl
+      - name: Install network tools
         run: |
           sudo apt-get update && \
-          sudo apt-get install -y --no-install-recommends netcat-openbsd curl && \
+          sudo apt-get install -y --no-install-recommends netcat-openbsd curl dnsutils && \
           sudo rm -rf /var/lib/apt/lists/*
         shell: bash
 
-      # 2. HTTP Health Endpoint 확인 (${{ inputs.health_check_port }})
-      #    - /health 경로에 요청을 보내 2xx 응답 코드를 받는지 확인
-      - name: Check HTTP Health Endpoint (${{ inputs.health_check_port }})
+      # DNS 검증 단계 추가
+      - name: Verify DNS resolution
+        run: |
+          echo "Resolving hostname: ${{ inputs.server_address }}"
+          IP_ADDRESSES=$(dig +short ${{ inputs.server_address }})
+          
+          if [ -z "$IP_ADDRESSES" ]; then
+            echo "Warning: Could not resolve hostname ${{ inputs.server_address }}"
+            echo "This might be a DNS issue or the hostname might be incorrect."
+          else
+            echo "Hostname resolved to: $IP_ADDRESSES"
+          fi
+        shell: bash
+        continue-on-error: true
+
+      # 지수 백오프 방식의 HTTP 검사
+      - name: Check HTTP Health Endpoint
+        id: http-check
         env:
           SERVER_ADDRESS: ${{ inputs.server_address }}
           HEALTH_PORT: ${{ inputs.health_check_port }}
           MAX_ATTEMPTS: ${{ inputs.max_attempts }}
-          RETRY_DELAY: ${{ inputs.retry_delay_seconds }}
           TIMEOUT: ${{ inputs.connect_timeout_seconds }}
+          EXPECTED_RESPONSE: ${{ inputs.expected_http_response }}
         run: |
-          echo "Attempting check: curl http://$SERVER_ADDRESS:$HEALTH_PORT/health ..."
           URL="http://$SERVER_ADDRESS:$HEALTH_PORT/health"
+          echo "Checking HTTP endpoint: $URL"
+          
           for i in $(seq 1 $MAX_ATTEMPTS); do
-            # curl 옵션:
-            # --fail (-f): HTTP 상태 코드가 4xx 또는 5xx일 경우 자동으로 실패(exit code 22) 처리. 2xx/3xx는 성공 간주.
-            # --silent (-s): 진행률 미터 숨김.
-            # --show-error (-S): --silent 사용 시에도 오류 메시지는 표시.
-            # --output /dev/null (-o): 응답 본문은 출력하지 않음 (상태 코드만 중요).
-            # --max-time (-m): 전체 요청에 대한 최대 시간 제한(초).
-            if curl -fsS -m $TIMEOUT "$URL" -o /dev/null; then
-              echo "HTTP Health check SUCCESS (received 2xx status)!"
-              exit 0 # 성공
+            # 백오프 시간 계산 (지수 백오프)
+            DELAY=$((5 * i))
+            
+            echo "Attempt $i/$MAX_ATTEMPTS..."
+            
+            # -L: 리디렉션 따라가기
+            # -o: 응답 출력 위치
+            HTTP_RESPONSE=$(mktemp)
+            HTTP_STATUS=0
+            
+            if curl -L -fsS -m $TIMEOUT "$URL" -o "$HTTP_RESPONSE" -w "%{http_code}"; then
+              HTTP_STATUS=$?
+              echo "HTTP request succeeded (status code: $HTTP_STATUS)"
+              
+              # 응답 내용 확인 (필요 시)
+              if [ -n "$EXPECTED_RESPONSE" ]; then
+                if grep -q "$EXPECTED_RESPONSE" "$HTTP_RESPONSE"; then
+                  echo "Expected response content found"
+                else
+                  echo "Warning: Expected response content not found"
+                  echo "Response content:"
+                  cat "$HTTP_RESPONSE"
+                  rm "$HTTP_RESPONSE"
+                  # 여기서는 경고만 표시하고 실패로 처리하지 않음
+                fi
+              fi
+              
+              rm "$HTTP_RESPONSE"
+              echo "http_success=true" >> $GITHUB_OUTPUT
+              exit 0
             fi
-            # curl 실패 시 종료 코드 확인 (선택적 상세 로깅)
-            CURL_EXIT_CODE=$?
-            echo "curl exit code: $CURL_EXIT_CODE"
+            
+            CURL_EXIT=$?
+            echo "curl exit code: $CURL_EXIT"
+            
+            # 상세 오류 정보 제공
+            case $CURL_EXIT in
+              6) echo "Could not resolve host: $SERVER_ADDRESS" ;;
+              7) echo "Failed to connect to host or proxy" ;;
+              28) echo "Connection timed out after $TIMEOUT seconds" ;;
+              22) echo "HTTP response returned error code" ;;
+              *) echo "curl failed with exit code $CURL_EXIT" ;;
+            esac
+            
+            [ -f "$HTTP_RESPONSE" ] && rm "$HTTP_RESPONSE"
+            
             if [ $i -lt $MAX_ATTEMPTS ]; then
-              echo "HTTP Health check attempt $i failed. Retrying in $RETRY_DELAY seconds..."
-              sleep $RETRY_DELAY
+              echo "Retrying in $DELAY seconds..."
+              sleep $DELAY
             fi
           done
-          echo "HTTP Health check FAILED after $MAX_ATTEMPTS attempts! Could not reach $URL or received non-2xx/3xx status."
-          exit 1 # 최종 실패
+          
+          echo "HTTP Health check FAILED after $MAX_ATTEMPTS attempts!"
+          echo "http_success=false" >> $GITHUB_OUTPUT
+          exit 1
         shell: bash
 
-      # 3. TCP Echo 포트 확인 (${{ inputs.echo_server_port }})
-      #    - TCP 포트 연결이 수립되는지 확인
-      - name: Check TCP Echo Port (${{ inputs.echo_server_port }})
+      # TCP 에코 포트 확인 개선
+      - name: Check TCP Echo Port
+        id: tcp-check
         env:
           SERVER_ADDRESS: ${{ inputs.server_address }}
           ECHO_PORT: ${{ inputs.echo_server_port }}
           MAX_ATTEMPTS: ${{ inputs.max_attempts }}
-          RETRY_DELAY: ${{ inputs.retry_delay_seconds }}
           TIMEOUT: ${{ inputs.connect_timeout_seconds }}
         run: |
-          echo "Attempting check: nc -z -w $TIMEOUT $SERVER_ADDRESS $ECHO_PORT ..."
+          echo "Checking TCP port $ECHO_PORT on $SERVER_ADDRESS..."
+          
           for i in $(seq 1 $MAX_ATTEMPTS); do
-            # nc 옵션: -z (스캔 모드), -v (상세 정보 - stderr로 출력됨), -w (타임아웃 초)
-            # nc는 성공 시 exit code 0, 실패 시 0이 아닌 코드를 반환한다.
-            if nc -z -w $TIMEOUT $SERVER_ADDRESS $ECHO_PORT; then
-              echo "TCP Echo port connection SUCCESS!"
-              exit 0 # 성공
+            # 백오프 시간 계산
+            DELAY=$((5 * i))
+            
+            echo "Attempt $i/$MAX_ATTEMPTS..."
+            
+            # 데이터 송수신 테스트 추가
+            TEST_STRING="HELLO_SERVER_$(date +%s)"
+            RESPONSE=""
+            
+            if RESPONSE=$(echo "$TEST_STRING" | timeout $TIMEOUT nc -w $TIMEOUT $SERVER_ADDRESS $ECHO_PORT 2>/dev/null); then
+              echo "TCP connection successful"
+              
+              # 에코 서버 검증 (데이터 반환 확인)
+              if [ "$RESPONSE" = "$TEST_STRING" ]; then
+                echo "Echo server working correctly: sent '$TEST_STRING', received '$RESPONSE'"
+                echo "tcp_success=true" >> $GITHUB_OUTPUT
+                exit 0
+              else
+                echo "Warning: Echo server returned unexpected data"
+                echo "Sent: '$TEST_STRING'"
+                echo "Received: '$RESPONSE'"
+                
+                # 빈 응답인 경우는 여전히 성공으로 처리
+                if [ -z "$RESPONSE" ]; then
+                  echo "Empty response, but connection succeeded (server might not be an echo server)"
+                  echo "tcp_success=true" >> $GITHUB_OUTPUT
+                  exit 0
+                fi
+              fi
             fi
+            
             if [ $i -lt $MAX_ATTEMPTS ]; then
-              echo "TCP Echo port attempt $i failed. Retrying in $RETRY_DELAY seconds..."
-              sleep $RETRY_DELAY
+              echo "Retrying in $DELAY seconds..."
+              sleep $DELAY
             fi
           done
-          echo "TCP Echo port connection FAILED after $MAX_ATTEMPTS attempts!"
-          exit 1 # 최종 실패
+          
+          echo "TCP Echo port check FAILED after $MAX_ATTEMPTS attempts!"
+          echo "tcp_success=false" >> $GITHUB_OUTPUT
+          exit 1
+        shell: bash
+
+      # 최종 상태 설정
+      - name: Set final connection status
+        id: set-status
+        if: always()
+        run: |
+          HTTP_SUCCESS="${{ steps.http-check.outputs.http_success }}"
+          TCP_SUCCESS="${{ steps.tcp-check.outputs.tcp_success }}"
+          
+          if [ "$HTTP_SUCCESS" = "true" ] && [ "$TCP_SUCCESS" = "true" ]; then
+            echo "All connection checks passed successfully!"
+            echo "final_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "Some connection checks failed!"
+            echo "HTTP Health check: ${HTTP_SUCCESS:-false}"
+            echo "TCP Echo check: ${TCP_SUCCESS:-false}"
+            echo "final_status=fail" >> $GITHUB_OUTPUT
+          fi
         shell: bash
