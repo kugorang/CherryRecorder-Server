@@ -227,5 +227,6 @@ jobs:
       - name: Image push skipped
         # check-push 스텝에서 push_required가 false일 때만 실행
         if: steps.check-push.outputs.push_required == 'false'
-        run: echo "ECR push skipped: Image content digest matches the existing :latest tag or built digest is missing."
+        run: |
+            echo "ECR push skipped: Image content digest matches the existing :latest tag or built digest is missing."
         shell: bash
