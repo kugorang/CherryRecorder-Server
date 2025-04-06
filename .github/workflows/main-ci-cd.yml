@@ -183,7 +183,10 @@ jobs:
   # --- 7. AWS ECS 배포 ---
   call_deploy_aws:
     name: 7. Deploy Application to AWS ECS
-    if: needs.call_push_ecr.result == 'success' # ECR 푸시 성공 시에만 실행
+    # ECR 푸시 Job이 성공했고('success') *그리고* 실제로 푸시가 발생했을 때('true')만 실행
+    if: |
+      needs.call_push_ecr.result == 'success' &&
+      needs.call_push_ecr.outputs.pushed_result == 'true'
     uses: ./.github/workflows/reusable-deploy-aws.yml
     needs:
       - call_docker_build # 이미지 정보 필요

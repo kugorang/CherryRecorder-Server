@@ -17,6 +17,11 @@ on:
         type: string
     secrets:
       aws_role_to_assume: { required: true }
+    # --- 워크플로우 레벨 출력 정의 ---
+    outputs:
+      pushed: # 호출 워크플로우에서 사용할 이름
+        description: "'true' if image was pushed, 'false' otherwise"
+        value: ${{ jobs.push_ecr_job.outputs.pushed_output }} # Job 출력 매핑
 
 jobs:
   push_ecr_job:
@@ -25,7 +30,9 @@ jobs:
     permissions:
       id-token: write # OIDC 필수 권한
       packages: read  # GHCR 이미지 풀링 권한
-
+    # --- Job 레벨 출력 정의 ---
+    outputs:
+      pushed_output: ${{ steps.check-push.outputs.push_required }} # check-push 스텝의 결과 매핑
     steps:
       # 1. AWS 자격 증명 설정 (OIDC)
       - name: Configure AWS Credentials (OIDC)
@@ -83,14 +90,14 @@ jobs:
           ECR_IMAGE_BASE: ${{ inputs.image_name_ecr }}
           TAG_SHA: ${{ inputs.image_tag_sha }}
           TAG_LATEST: ${{ inputs.image_tag_latest }}
-          GHCR_IMAGE_SHA: ${{ inputs.ghcr_image_uri_sha }} # Pull 대상 이미지 (SHA 태그 포함)
+          GHCR_IMAGE_SHA: ${{ inputs.ghcr_image_uri_sha }} # Pull 대상 이미지
         run: |
           echo "Pulling image from GHCR: $GHCR_IMAGE_SHA"
-          docker pull $GHCR_IMAGE_SHA # <-- GHCR에서 이미지 가져오기
+          docker pull $GHCR_IMAGE_SHA # <-- Pull 단계가 먼저 실행되어야 함!
           if [ $? -ne 0 ]; then echo "Error: Failed to pull image from GHCR"; exit 1; fi
 
-          # 이제 로컬에 $GHCR_IMAGE_SHA 태그로 이미지가 존재함
           echo "Tagging $GHCR_IMAGE_SHA -> $ECR_IMAGE_BASE:$TAG_SHA and $ECR_IMAGE_BASE:$TAG_LATEST"
+          # docker tag의 원본을 $LOCAL_IMAGE 대신 $GHCR_IMAGE_SHA 사용
           docker tag $GHCR_IMAGE_SHA $ECR_IMAGE_BASE:$TAG_SHA
           docker tag $GHCR_IMAGE_SHA $ECR_IMAGE_BASE:$TAG_LATEST
 
