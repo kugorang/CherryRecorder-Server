@@ -132,7 +132,7 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 \
 # 메타데이터
 LABEL maintainer="Kim Hyeonwoo <ialskdji@gmail.com>" \
       description="CherryRecorder Server Application - TCP Echo & HTTP Health Check" \
-      version="0.1.1" # 버전은 필요시 업데이트
+      version="0.1.1"
 
 # 시작 명령어
 CMD ["./CherryRecorder-Server-App"]
