@@ -126,7 +126,7 @@ jobs:
           echo "Checking manifest digest for ECR image: $ECR_IMAGE_LATEST"
 
           # skopeo inspect 실행 (오류 시 빈 문자열 반환)
-          LATEST_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://$ECR_IMAGE_LATEST 2>/dev/null || echo "")
+          LATEST_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://$ECR_IMAGE_LATEST || echo "") # 오류 발생 시 빈 문자열 반환은 유지하되, stderr 출력 확인
 
           if [ -n "$LATEST_DIGEST" ]; then
             echo "Current ECR :latest manifest digest: $LATEST_DIGEST"
@@ -139,20 +139,19 @@ jobs:
           echo "Built image manifest digest: $BUILT_DIGEST"
 
           # 다이제스트 길이 로깅 (디버깅용)
-          echo "Built digest length: ${#BUILT_DIGEST}"
-          echo "ECR digest length: ${#LATEST_DIGEST}"
+          echo "=== Digest Comparison ==="
+          echo "Built Digest  : [${BUILT_DIGEST}] (Length: ${#BUILT_DIGEST})"
+          echo "Latest Digest : [${LATEST_DIGEST}] (Length: ${#LATEST_DIGEST})"
 
-          # 다이제스트 비교
-          # - 빌드된 다이제스트가 있어야 하고 (빌드/푸시 성공 가정)
-          # - 빌드된 다이제스트가 ECR의 다이제스트와 다르거나,
-          # - ECR 다이제스트가 비어있으면 (이미지가 없거나 조회 실패) 푸시 필요
           if [ -n "$BUILT_DIGEST" ] && ([ "$BUILT_DIGEST" != "$LATEST_DIGEST" ] || [ -z "$LATEST_DIGEST" ]); then
-            echo "Push required: Digests differ or ECR image/digest not found."
+            echo "Result: Digests differ or latest is empty. Push required."
             echo "push_required=true" >> $GITHUB_OUTPUT
           else
-            echo "Push not required: Digests match or built digest is empty."
+            echo "Result: Digests match or built digest is empty. Push not required."
             echo "push_required=false" >> $GITHUB_OUTPUT
           fi
+          echo "========================="
+
         shell: bash
 
       # 7. 이미지 Pull, Tag, Push (조건부 실행 및 재시도 로직)
