@@ -76,7 +76,6 @@ jobs:
           # 소스 파일의 해시 생성 (Dockerfile, 소스 코드 등)
           SOURCE_HASH=$(find . -type f -not -path "./.git/*" -not -path "./out/*" -not -path "./build/*" | sort | xargs sha256sum | sha256sum | cut -d' ' -f1)
           echo "source_hash=${SOURCE_HASH}" >> $GITHUB_OUTPUT
-          echo "build_date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Set Image Names (ECR, GHCR) and Output Base DH Name
@@ -130,8 +129,45 @@ jobs:
       #     echo "Existing GHCR image manifest digest (before push): $EXISTING_DIGEST"
       #   shell: bash
 
+      - name: Cache last build hash
+        uses: actions/cache@v3
+        id: cache-last-build
+        with:
+          path: .last_build_hash
+          key: buildhash-${{ steps.build-id.outputs.source_hash }}
+
+      - name: Check if source changed
+        id: check-changed
+        run: |
+          if [ -f .last_build_hash ]; then
+            PREV_HASH=$(cat .last_build_hash)
+            CUR_HASH="${{ steps.build-id.outputs.source_hash }}"
+            if [ "$PREV_HASH" = "$CUR_HASH" ]; then
+              echo "changed=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+          echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Get last commit time
+        id: last_commit_time
+        run: |
+          COMMIT_TIME=$(git log -1 --pretty=%ct)
+          echo "commit_time=$COMMIT_TIME" >> $GITHUB_OUTPUT
+          # or human-readable date
+          # COMMIT_DATE=$(git log -1 --pretty=%cd --date=iso)
+          # echo "commit_date=$COMMIT_DATE" >> $GITHUB_OUTPUT
+
+      - name: Get SOURCE_DATE_EPOCH
+        id: source_date
+        run: |
+          # git의 마지막 커밋 유닉스 타임을 SOURCE_DATE_EPOCH으로 쓸 수 있음
+          EPOCH_VAL=$(git log -1 --pretty=%ct)
+          echo "epoch=$EPOCH_VAL" >> $GITHUB_OUTPUT
+
       # 빌드 및 GHCR 푸시 (개선된 캐싱 설정)
       - name: Build and push to GHCR with Cache
+        if: steps.check-changed.outputs.changed == 'true'
         id: build_and_push_ghcr # ID 변경
         uses: docker/build-push-action@v5
         with:
@@ -149,16 +185,14 @@ jobs:
           build-args: |
             BUILDKIT_INLINE_CACHE=1
             BUILD_ID=${{ steps.build-id.outputs.source_hash }}
-            BUILD_DATE=${{ steps.build-id.outputs.build_date }}
             GIT_COMMIT=${{ github.sha }}
+            SOURCE_DATE_EPOCH=${{ steps.source_date.outputs.epoch }}
           # 이미지 레이블 설정
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             build.id=${{ steps.build-id.outputs.source_hash }}
-            build.date=${{ steps.build-id.outputs.build_date }}
-
-      # --- skopeo 설치 및 다이제스트 추출 스텝 제거됨 ---
+            build.date=${{ steps.last_commit_time.outputs.commit_time }}
 
       # build-push-action의 digest 출력 확인 (디버깅용)
       - name: Debug image info
@@ -167,4 +201,14 @@ jobs:
           echo "Image pushed to GHCR: ${{ steps.set-names.outputs.ghcr_image_sha }}"
           echo "Build-push action manifest digest: ${{ steps.build_and_push_ghcr.outputs.digest }}" # 수정된 스텝 ID와 출력 참조
           # echo "Extracted content digest: ..." 라인 제거됨
+        shell: bash
+
+      - name: Final post-build step
+        run: |
+          if [ "${{ steps.check-changed.outputs.changed }}" = "true" ]; then
+            echo "${{ steps.build-id.outputs.source_hash }}" > .last_build_hash
+            echo "Hash saved for next build."
+          else
+            echo "No changes. Build skipped."
+          fi
         shell: bash
