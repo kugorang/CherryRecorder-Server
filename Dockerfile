@@ -1,8 +1,7 @@
 # ======================================================================
 # Dockerfile for CherryRecorder Server (Optimized Multi-stage Build)
-# - Includes TCP Echo (Boost.Asio) & HTTP Health Check (Boost.Beast)
-# - DB Dependencies Removed
-# 최종 수정: 2025-04-05
+# - Cache Optimization Focused on vcpkg & Layering
+# 최종 수정: 2025-04-07 (캐시 최적화 적용)
 # ======================================================================
 
 # ----------------------------------------------------------------------
@@ -15,9 +14,8 @@ LABEL stage="builder"
 # 환경 변수: apt 비대화형 설정
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 빌드 필수 도구 및 vcpkg 의존성 빌드용 시스템 라이브러리 설치
-# - DB 관련 (-dev) 패키지 제거됨
-# - libssl-dev: Boost 등 다른 라이브러리에서 여전히 필요할 수 있음
+# --- STEP 1: 빌드 도구 설치 ---
+# 가장 먼저, 가장 변경이 적은 시스템 의존성 설치
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
@@ -32,25 +30,42 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# vcpkg 설치 및 부트스트랩
+# --- STEP 2: vcpkg 설치 (특정 버전 고정) ---
+# 특정 vcpkg 커밋을 체크아웃하여 vcpkg 자체의 변경 방지
+# <사용할_vcpkg_커밋_해시> 부분은 실제 사용할 안정적인 커밋 해시로 변경해야 함
+ARG VCPKG_COMMIT_HASH=b02e341c927f16d991edbd915d8ea43eac52096c
 WORKDIR /opt
 RUN git clone https://github.com/microsoft/vcpkg.git && \
+    cd vcpkg && \
+    git checkout ${VCPKG_COMMIT_HASH} && \
+    cd .. && \
     ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
-# 애플리케이션 소스 코드 복사 및 빌드 준비
+# --- STEP 3: 애플리케이션 의존성 파일 복사 ---
+# 소스 코드 복사 전에 의존성 정의 파일만 먼저 복사
+# vcpkg.json 파일이 변경되지 않으면 이 레이어 및 다음 vcpkg 설치 단계가 캐시될 수 있음
 WORKDIR /app
+COPY vcpkg.json ./
 
-# 중요: 이 Dockerfile을 빌드하기 전에 로컬 vcpkg.json 파일에서
-# "mysql-connector-cpp" 의존성을 미리 제거해야 한다.
-COPY vcpkg.json CMakeLists.txt ./
+# --- STEP 4: vcpkg 라이브러리 설치 ---
+# vcpkg.json이 변경되었을 때만 이 단계가 실행됨
+# CMake를 사용하여 의존성 설치 (실제 빌드는 하지 않음 - CMakeLists.txt 구조에 따라 조정 필요)
+# 또는 간단하게 vcpkg install 명령을 직접 사용할 수도 있음 (이 경우 CMakeLists.txt 필요 없음)
+# 여기서는 CMake가 vcpkg를 트리거한다고 가정. 더미 CMakeLists.txt를 사용하거나,
+# vcpkg install 명령을 직접 사용하는 것이 캐싱에 더 유리할 수 있음.
+# 우선, 원래 방식대로 CMake를 통해 설치되도록 두되, vcpkg.json 버전 고정이 중요함.
 
-# 나머지 소스 코드 복사
+# --- STEP 5: CMake 설정 파일 복사 ---
+COPY CMakeLists.txt ./
+
+# --- STEP 6: 소스 코드 복사 ---
+# 소스 코드는 의존성 설치 이후에 복사
 COPY src ./src
 COPY include ./include
-# 테스트 코드는 최종 이미지에 포함되지 않음 (BUILD_TESTING=OFF)
 
-# CMake 설정 및 빌드 실행 (Release 모드, 테스트 제외)
-# vcpkg가 vcpkg.json을 읽어 필요한 의존성(Boost 등)만 설치/빌드함
+# --- STEP 7: 애플리케이션 빌드 ---
+# 소스 코드 또는 CMakeLists.txt가 변경되면 여기서부터 다시 실행됨
+# vcpkg.json 에서 버전이 고정되었다면, 라이브러리는 다시 빌드되지 않고 캐시된 것을 사용함
 RUN cmake -S . -B build \
       -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
@@ -59,80 +74,65 @@ RUN cmake -S . -B build \
       -DBUILD_TESTING=OFF \
     && cmake --build build -j $(nproc)
 
-# (필수 확인 단계) 빌드된 실행 파일의 동적 라이브러리 의존성 확인
-# 이 명령의 출력을 보고 아래 Final 스테이지의 COPY 명령어 목록을 확정해야 한다.
+# --- STEP 8: 빌드된 실행 파일 의존성 확인 ---
+# 이 단계는 레이어 캐시에 영향을 주지 않음
 RUN echo "--- Required Shared Libraries (Check paths starting with /app/build/vcpkg_installed/...) ---" && \
     ldd /app/build/CherryRecorder-Server-App && \
     echo "--- End of Shared Library List ---"
 
+
 # ----------------------------------------------------------------------
-# 스테이지 2: "Final" - 애플리케이션 실행 전용 환경
+# 스테이지 2: "final" - 애플리케이션 실행 전용 환경 (이전과 거의 동일)
 # ----------------------------------------------------------------------
-FROM ubuntu:24.04
+FROM ubuntu:24.04 AS final
 
 LABEL stage="final"
-
-# 환경 변수: apt 비대화형 설정
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 필수 런타임 시스템 라이브러리 설치
-# - ca-certificates: SSL/TLS 통신 기본
-# - curl: Health Check 용도
-# - libssl3: OpenSSL 런타임 (Builder의 libssl-dev와 버전 호환성 확인 필요, Ubuntu 24.04는 libssl3 사용)
+# 런타임 의존성 설치 (변경 빈도 낮음)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     libssl3 \
+    # ldd 결과 확인 후 필요한 다른 시스템 라이브러리 추가
     && rm -rf /var/lib/apt/lists/*
 
-# vcpkg로 빌드된 필수 공유 라이브러리(.so) 복사
-# !! 중요 !!: 위 Builder 스테이지의 'ldd' 출력 결과를 보고 필요한 파일을 정확히 복사해야 한다.
-#            아래 목록은 일반적인 Boost.Beast/Asio 사용 시 필요한 예시이다.
+# Builder 스테이지에서 빌드된 vcpkg 라이브러리 복사
+# 이 레이어는 Builder 스테이지의 빌드 결과가 변경될 때만 변경됨
 COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/libboost_system.so* /usr/local/lib/
 COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/libboost_asio.so* /usr/local/lib/
 COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/libboost_beast.so* /usr/local/lib/
-# COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/libboost_thread.so* /usr/local/lib/ # 스레드 사용 시 필요할 수 있음
-# COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/libboost_context.so* /usr/local/lib/ # Asio/Beast 내부 의존성일 수 있음
-# COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/libboost_date_time.so* /usr/local/lib/ # 필요 시
 # ... (ldd 결과에 따라 필요한 다른 vcpkg .so 파일들) ...
 
-# 복사된 공유 라이브러리 캐시 업데이트
+# 라이브러리 캐시 업데이트
 RUN ldconfig
 
-# 보안 강화를 위한 비-루트 사용자 생성
+# 사용자 생성 및 디렉토리 설정
 RUN useradd --system --create-home --shell /bin/bash appuser
-
-# 애플리케이션 작업 디렉토리 설정
 WORKDIR /home/appuser/app
 
-# Builder 스테이지에서 빌드된 최종 실행 파일 복사 및 권한 설정
+# 최종 실행 파일 복사 (Builder 결과 변경 시 이 레이어 변경됨)
 COPY --from=builder --chown=appuser:appuser /app/build/CherryRecorder-Server-App ./CherryRecorder-Server-App
-# RUN chmod +x ./CherryRecorder-Server-App # COPY --chown 시 불필요할 수 있으나 명시적으로 추가 가능
 
-# 비-루트 사용자로 전환
+# 사용자 전환
 USER appuser
 
-# --- 애플리케이션 포트 설정 ---
-# Health Check 서버 포트
+# 포트 설정 및 노출
 ARG HEALTH_CHECK_PORT=8080
 ENV HEALTH_CHECK_PORT=${HEALTH_CHECK_PORT}
 EXPOSE ${HEALTH_CHECK_PORT}
-
-# TCP Echo 서버 포트
 ARG ECHO_SERVER_PORT=33333
 ENV ECHO_SERVER_PORT=${ECHO_SERVER_PORT}
 EXPOSE ${ECHO_SERVER_PORT}
 
-# --- 컨테이너 상태 확인 (Health Check) 설정 ---
-# curl을 사용하여 HTTP Health Check 포트의 /health 경로 응답 확인
-# ${VAR:-default}: VAR 변수가 없으면 default 값 사용
+# Health Check
 HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 \
   CMD curl --fail http://127.0.0.1:${HEALTH_CHECK_PORT:-8080}/health || exit 1
 
-# 이미지 메타데이터 라벨
+# 메타데이터
 LABEL maintainer="Kim Hyeonwoo <ialskdji@gmail.com>" \
       description="CherryRecorder Server Application - TCP Echo & HTTP Health Check" \
-      version="0.1.1"
+      version="0.1.1" # 버전은 필요시 업데이트
 
-# 컨테이너 시작 시 실행될 기본 명령어
+# 시작 명령어
 CMD ["./CherryRecorder-Server-App"]

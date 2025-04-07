@@ -1,30 +1,92 @@
-# Git 관련 파일
+# ========================================================
+# Docker Ignore File for C++ CMake Project (Optimized)
+# Target Environment: Windows 11 + Visual Studio + CMake
+# ========================================================
+
+# --- Git Files ---
+# Exclude the entire Git directory and related files
 .git/
 .gitignore
 .gitattributes
 
-# 빌드 결과물
+# --- Build Artifacts ---
+# Exclude CMake generated build directories (adjust if using different names)
 build/
 out/
 
-# 로컬 설정 및 임시 파일
+# Exclude common Visual Studio/MSBuild output directories (case-insensitive)
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+ARM64/
+# Add other platform/configuration specific folders if necessary (e.g., Win32/)
+
+# --- IDE / Editor Specific Files ---
+# Visual Studio Code specific
 .vscode/
-*.user
-*.suo
+
+# Visual Studio specific (case-insensitive)
+.vs/              # Visual Studio solution cache/settings directory
+*.user            # User-specific project settings
+*.suo             # Solution user options (older VS versions)
+*.vcxproj.user    # User-specific C++ project settings
+*.sln.dotsettings # ReSharper settings (if used)
+
+# --- Dependency Management (vcpkg) ---
+# Exclude local vcpkg artifacts. These should be generated inside the container.
+# IMPORTANT: Ensure the vcpkg directory itself (if checked into repo) and
+# vcpkg.json are NOT ignored if needed by the Dockerfile COPY command.
+vcpkg/buildtrees/
+vcpkg/downloads/
+vcpkg/packages/
+# vcpkg/installed/ # Also exclude pre-installed packages if any
+
+# --- Temporary & Log Files ---
+# Common temporary file extensions and log files
 *.log
 *.tmp
+*.bak
+*.swp             # Vim swap files
 
-# vcpkg 다운로드 및 빌드 트리 (이미지 내에서 새로 처리)
-vcpkg/downloads/
-vcpkg/buildtrees/
-# vcpkg/packages/ # 필요한 경우 제외 해제
-
-# 로컬 환경 설정 파일 (예시)
-config.local.json
+# --- Local Configuration & Secrets ---
+# Files containing local environment settings or secrets
+*.local
 .env
+.env.*
+config.local.*
+secrets.*
+# Add any other specific secret file names/patterns
 
-# 기타 불필요한 파일
-*.md
-LICENSE.txt
+# --- Documentation & Tests ---
+# Exclude documentation and test code/artifacts if not needed in the final image
+# or build context. Adjust based on project needs.
 docs/
-tests/ # 최종 이미지에 테스트 코드 불필요 시
+tests/
+*.md              # Optional: Exclude Markdown files
+LICENSE           # Optional: Exclude License file
+LICENSE.*
+
+# --- OS Specific Files ---
+# Windows thumbnail cache
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# macOS specific files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# --- Other Common Exclusions ---
+*.zip
+*.tar.gz
+*.rar
+
+# ========================================================
+# Notes:
+# - Ensure essential files (CMakeLists.txt, vcpkg.json, src/, include/, etc.)
+#   are NOT excluded.
+# - This file uses Git's .gitignore syntax.
+# ========================================================
