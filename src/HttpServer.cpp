@@ -236,7 +236,7 @@ private:
         // 응답 객체 생성 (상태코드 OK, 요청과 동일한 HTTP 버전 사용)
         http::response<http::string_body> res{ http::status::ok, req_.version() };
         // 응답 헤더 설정
-        res.set(http::field::server, BOOST_BEAST_VERSION_STRING); // Server 헤더
+        res.set(http::field::server, "WebServer"); // Server 헤더
         res.set(http::field::content_type, "text/plain");         // Content-Type 헤더
         res.keep_alive(req_.keep_alive());                       // 요청의 Keep-Alive 설정 따름
         // 응답 본문 설정
