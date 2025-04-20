@@ -7,7 +7,9 @@
     {
       "name": "$CONTAINER_NAME",
       "image": "placeholder",
-      "memoryReservation": 768,
+      "cpu": 256,
+      "memoryReservation": 250,
+      "memory": 315,
       "essential": true,
       "portMappings": [
         {
