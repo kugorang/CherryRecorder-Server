@@ -1,0 +1,66 @@
+# ======================================================================
+# Dockerfile for Testing CherryRecorder Server (Uses Builder Stage)
+# ======================================================================
+
+# ----------------------------------------------------------------------
+# 스테이지 1: "builder" - 기존 Dockerfile의 빌더 스테이지 재사용
+# ----------------------------------------------------------------------
+# Docker 빌드 시 --target builder 옵션과 함께 기존 Dockerfile을 사용하거나,
+# 아래 내용을 복사하여 사용. 여기서는 명확성을 위해 내용을 포함함.
+FROM ubuntu:24.04 AS builder
+
+LABEL stage="builder"
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake git curl wget zip unzip tar pkg-config ca-certificates ninja-build libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+ARG CMAKE_VERSION=3.30.1
+RUN wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.sh \
+    -q -O /tmp/cmake-install.sh && chmod +x /tmp/cmake-install.sh && /tmp/cmake-install.sh --skip-license --prefix=/usr/local && rm /tmp/cmake-install.sh
+ENV PATH=/usr/local/bin:$PATH
+ARG VCPKG_COMMIT_HASH=b02e341c927f16d991edbd915d8ea43eac52096c
+WORKDIR /opt
+RUN git clone https://github.com/microsoft/vcpkg.git && cd vcpkg && git checkout ${VCPKG_COMMIT_HASH} && cd .. && ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+WORKDIR /app
+COPY vcpkg.json CMakeLists.txt ./
+COPY src ./src/
+COPY include ./include/
+COPY tests ./tests/
+
+# --- 테스트 포함 빌드 (CMake Configure) ---
+# BUILD_TESTING=ON 으로 변경, CMAKE_BUILD_TYPE은 Debug 또는 RelWithDebInfo 권장
+RUN cmake -S . -B build \
+      -G Ninja \
+      -DCMAKE_BUILD_TYPE=Debug \
+      -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
+      -DVCPKG_TARGET_TRIPLET=x64-linux \
+      -DBUILD_TESTING=ON \
+      -DCMAKE_VERBOSE_MAKEFILE=ON
+
+# --- 테스트 포함 빌드 (CMake Build) ---
+RUN cmake --build build -j $(nproc)
+
+# ----------------------------------------------------------------------
+# 스테이지 2: "tester" - 테스트 실행 환경
+# ----------------------------------------------------------------------
+FROM ubuntu:24.04 AS tester
+
+LABEL stage="tester"
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 런타임 의존성 및 CMake 설치
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl libssl3 cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+# Builder 스테이지에서 빌드된 라이브러리 복사
+COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/* /usr/local/lib/
+RUN ldconfig
+
+# Builder 스테이지에서 빌드된 테스트 실행 파일 복사
+WORKDIR /app/build
+COPY --from=builder /app/build .
+
+# 테스트 실행
+# 빌드 디렉토리를 정확히 명시하고 -C Debug 옵션 추가
+CMD ["ctest", "--test-dir", ".", "--output-on-failure", "-R", "^(HttpServerTest|ChatServerTest|EchoServerTest)$", "-C", "Debug"] 
