@@ -44,14 +44,17 @@ using tcp = boost::asio::ip::tcp;
 class HttpServerTest : public ::testing::Test {
 protected:
     // 테스트 설정 값
-    const unsigned short test_port = 8888; ///< @brief 테스트에 사용할 HTTP 포트 번호. Echo 서버 및 다른 서비스와 겹치지 않도록 주의.
+    const unsigned short test_port = 8080; ///< @brief 테스트에 사용할 HTTP 포트 번호.
     const std::string test_ip = "127.0.0.1"; ///< @brief 테스트 서버가 리슨할 IP 주소 (localhost).
     const int test_threads = 1; // 테스트에는 스레드 1개로도 충분할 수 있음.
-    const std::string test_doc_root = "."; // 정적 파일 루트 (현재 테스트에서는 사용 안 함).
+    // const std::string test_doc_root = "."; // 사용되지 않으므로 주석 처리
 
     // 서버 객체 포인터
     std::unique_ptr<HttpServer> server;
-    // std::thread server_thread; // HttpServer는 자체 스레드를 관리하므로 Fixture에서 별도 스레드 필요 없음.
+    // std::unique_ptr<net::io_context> ioc_; // HttpServer가 자체 ioc 관리 가정
+    // std::unique_ptr<tcp::socket> client_socket_; // http_get 내부에서 생성
+    // tcp::resolver::results_type endpoints_; // http_get 내부에서 사용
+    // std::thread server_thread_; // HttpServer가 자체 스레드 관리 가정
 
     /**
      * @brief 각 테스트 케이스 시작 전에 호출되는 설정 메서드.
@@ -64,20 +67,28 @@ protected:
     void SetUp() override {
         fprintf(stdout, "[HttpServerTest::SetUp] Starting setup for port %d...\n", test_port);
         try {
-            // 서버 객체 생성
-            server = std::make_unique<HttpServer>(test_ip, test_port, test_threads, test_doc_root);
-
-            // 서버 실행 (내부적으로 스레드 생성 및 io_context 실행)
-            server->run();
-
-            // 서버가 시작되고 리스닝 상태가 될 때까지 잠시 대기
-            // TODO: 더 견고한 준비 상태 확인 메커니즘 구현 고려 (예: 서버가 준비 완료 로그를 남기거나, 테스트 클라이언트가 접속 시도)
-            const int wait_ms = 300; // 대기 시간 (환경에 따라 조정 필요)
-            fprintf(stdout, "[HttpServerTest::SetUp] Waiting %d ms for server to start...\n", wait_ms);
-            std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
-
-            // 간단한 접속 테스트로 준비 확인 (선택적)
-            // try { http_get("/"); } catch(...) {} // 예외 무시하고 접속 시도만
+            // 서버 생성 시 올바른 생성자 사용 (주소, 포트, 스레드 수)
+            server = std::make_unique<HttpServer>(test_ip, test_port, test_threads);
+            
+            // 별도 스레드에서 서버 실행
+            std::thread server_thread([this]() {
+                try {
+                    server->run(); // run() 내부에서 ioc_.run() 호출 가정
+                } catch (const std::exception& e) {
+                    fprintf(stderr, "Server thread exception: %s\n", e.what());
+                }
+            });
+            server_thread.detach(); // 스레드 분리 (서버는 TearDown에서 중지됨)
+            
+            // 서버 시작 대기 (간단한 sleep, 실제로는 health check 등 사용 권장)
+            // Add a delay to allow the server thread to initialize and start listening
+            fprintf(stdout, "[HttpServerTest::SetUp] Waiting for server to initialize...\n");
+            std::this_thread::sleep_for(std::chrono::milliseconds(500)); // 500ms로 다시 줄임
+            
+            // 테스트용 클라이언트 준비
+            // client_socket_ = std::make_unique<tcp::socket>(*ioc_);
+            // tcp::resolver resolver(*ioc_);
+            // endpoints_ = resolver.resolve(test_ip, std::to_string(test_port));
 
             fprintf(stdout, "[HttpServerTest::SetUp] Setup complete, assuming server is running on port %d.\n", test_port);
 

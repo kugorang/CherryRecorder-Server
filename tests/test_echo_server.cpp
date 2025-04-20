@@ -42,7 +42,7 @@ using tcp = boost::asio::ip::tcp;
 class EchoServerTest : public ::testing::Test {
 protected:
     // 테스트 설정 값
-    const unsigned short test_port = 33334; ///< @brief 테스트에 사용할 TCP 포트 번호. 다른 테스트나 서비스와 충돌하지 않는 값 선택.
+    const unsigned short test_port = 33333; ///< @brief 테스트에 사용할 TCP 포트 번호.
     const std::string test_ip = "127.0.0.1"; ///< @brief 테스트 서버가 리슨할 IP 주소 (localhost).
 
     // 서버 실행 관련 멤버 변수
