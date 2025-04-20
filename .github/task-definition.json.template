@@ -7,10 +7,7 @@
     {
       "name": "$CONTAINER_NAME",
       "image": "placeholder",
-      "cpu": 341,
-      "memoryReservation": 250,
       "memory": 315,
-      "essential": true,
       "portMappings": [
         {
           "containerPort": "$HEALTH_CHECK_PORT_VALUE",
