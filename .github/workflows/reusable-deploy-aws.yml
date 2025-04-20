@@ -115,8 +115,10 @@ jobs:
       - name: Register task definition
         id: register-task
         run: |
+          echo "Registering task definition from rendered.json..."
           TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json file://rendered.json --query 'taskDefinition.taskDefinitionArn' --output text)
           echo "Registered task definition ARN: $TASK_DEF_ARN"
+          # 다음 단계에서 사용할 수 있도록 ARN을 출력 변수로 설정
           echo "task_def_arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
 
       # 5. ECS 서비스 업데이트

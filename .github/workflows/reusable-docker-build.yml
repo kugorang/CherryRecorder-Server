@@ -6,42 +6,42 @@ on:
   workflow_call:
     inputs:
       aws_region:
-        description: 'AWS region for ECR'
+        description: 'ECR 레지스트리가 위치한 AWS 리전'
         required: true
         type: string
       aws_account_id:
-        description: 'AWS Account ID for ECR registry'
+        description: 'ECR 레지스트리 접근을 위한 AWS 계정 ID'
         required: true
         type: string
       ecr_repo:
-        description: 'AWS ECR repository name'
+        description: 'ECR 리포지토리 이름'
         required: true
         type: string
       dockerhub_repo_base:
-        description: 'Base Docker Hub repository name (without username)'
+        description: 'Docker Hub 리포지토리 기본 이름 (사용자명 제외)'
         required: true
         type: string
       ghcr_repo_name:
-        description: 'GHCR repository name (defaults to GitHub repo name)'
+        description: 'GHCR 리포지토리 이름 (기본값: GitHub 리포지토리 이름)'
         required: false
         type: string
         default: ${{ github.event.repository.name }}
 
     outputs:
       image_digest:
-        description: '빌드/푸시된 이미지의 매니페스트 다이제스트 (sha256:...)'
+        description: 'GHCR에 푸시된 이미지의 최종 매니페스트 다이제스트 (예: sha256:...)'
         value: ${{ jobs.build_image_job.outputs.image_digest }}
       image_tag_sha:
-        description: 'Git SHA 기반 태그 (예: sha-xxxx)'
+        description: '빌드에 사용된 Git 커밋 SHA 기반 태그 (예: sha-7자sha)'
         value: ${{ jobs.build_image_job.outputs.image_tag_sha }}
       image_name_ecr:
-        description: 'ECR용 전체 이미지 이름 (태그 제외)'
+        description: '생성된 ECR용 전체 이미지 URI (태그 제외)'
         value: ${{ jobs.build_image_job.outputs.image_name_ecr }}
       dh_repo_name_base_output:
-        description: 'Base Docker Hub repository name output'
+        description: '입력으로 받은 Docker Hub 리포지토리 기본 이름 (다른 워크플로우 전달용)'
         value: ${{ jobs.build_image_job.outputs.dh_repo_name_base_output }}
       ghcr_image_uri_sha:
-         description: 'GHCR에 푸시된 이미지의 전체 URI (SHA 태그 포함)'
+         description: 'GHCR에 푸시된 이미지의 전체 URI (SHA 태그 포함, 다른 워크플로우 전달용)'
          value: ${{ jobs.build_image_job.outputs.ghcr_image_uri_sha }}
 
 jobs:
@@ -73,8 +73,11 @@ jobs:
       - name: Generate Build ID from source
         id: build-id
         run: |
-          # 소스 파일의 해시 생성 (Dockerfile, 소스 코드 등)
+          # 빌드 캐시 및 변경 감지를 위한 고유 ID 생성
+          # .git, out, build 디렉토리를 제외한 모든 파일의 내용을 기반으로 SHA256 해시 계산
+          # 파일 목록 변경 또는 내용 변경 시 해시값이 달라짐
           SOURCE_HASH=$(find . -type f -not -path "./.git/*" -not -path "./out/*" -not -path "./build/*" | sort | xargs sha256sum | sha256sum | cut -d' ' -f1)
+          echo "Generated source hash: $SOURCE_HASH"
           echo "source_hash=${SOURCE_HASH}" >> $GITHUB_OUTPUT
         shell: bash
 
@@ -89,19 +92,30 @@ jobs:
           GHCR_REPO_INPUT: ${{ inputs.ghcr_repo_name }}
           TAG_SHA: ${{ steps.tag-image.outputs.tag }}
         run: |
+          # 1. ECR 이미지 이름 생성
+          # ECR 레지스트리 주소
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          # ECR 전체 이미지 이름 (태그 제외)
           ECR_NAME="$ECR_REGISTRY/$ECR_REPO"
 
+          # 2. GHCR 이미지 이름 및 캐시 태그 생성
+          # 소유자 이름 소문자 변환
           GHCR_OWNER_LC=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
+          # 리포 이름 소문자 변환
           GHCR_REPO_LC=$(echo "$GHCR_REPO_INPUT" | tr '[:upper:]' '[:lower:]')
+          # GHCR 기본 경로
           GHCR_BASE="ghcr.io/${GHCR_OWNER_LC}/${GHCR_REPO_LC}"
+          # GHCR 푸시용 이미지 URI (SHA 태그 포함)
           GHCR_IMAGE_SHA="${GHCR_BASE}:${TAG_SHA}"
-          GHCR_CACHE_REF="${GHCR_BASE}:buildcache" # 캐시용 태그는 별도로 유지
+          # GHCR을 Docker 빌드 캐시 저장소로 사용하기 위한 고정 태그
+          GHCR_CACHE_REF="${GHCR_BASE}:buildcache"
 
+          # 3. 출력 변수 설정
           echo "ecr_name=$ECR_NAME" >> $GITHUB_OUTPUT
           echo "ghcr_image_sha=$GHCR_IMAGE_SHA" >> $GITHUB_OUTPUT
           echo "ghcr_cache_ref=$GHCR_CACHE_REF" >> $GITHUB_OUTPUT
-          echo "dh_repo_base=$DH_REPO_BASE_INPUT" >> $GITHUB_OUTPUT # dockerhub_repo_base 입력값을 그대로 출력
+          # Docker Hub 기본 이름은 입력값을 그대로 전달하여 다음 단계(Docker Hub 푸시)에서 사용
+          echo "dh_repo_base=$DH_REPO_BASE_INPUT" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Set up Docker Buildx

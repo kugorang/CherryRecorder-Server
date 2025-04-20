@@ -5,39 +5,39 @@ name: Reusable - Pull GHCR & Push Docker Image to Docker Hub (Conditional)
 on:
   workflow_call:
     inputs:
-      # Docker Hub 기본 리포 이름 (예: cherryrecorder-server)
+      # Docker Hub 리포지토리 기본 이름 (예: cherryrecorder-server, 사용자명 제외)
       dockerhub_repo_name:
-        description: 'Base Docker Hub repository name (without username)'
+        description: 'Docker Hub 리포지토리 기본 이름 (사용자명 제외)'
         required: true
         type: string
       image_tag_sha: # 예: sha-abcdef1
-        description: 'Image tag based on Git SHA (e.g., sha-xxxx)'
+        description: 'Git 커밋 SHA 기반 이미지 태그 (예: sha-7자sha)'
         required: true
         type: string
       image_tag_latest: # 예: latest
-        description: 'The :latest tag string'
+        description: ':latest 태그 문자열'
         required: true
         type: string
         default: 'latest'
       image_digest_built: # 예: sha256:aabbcc...
-        description: 'Manifest digest of the image built (sha256:...)'
+        description: '이전 빌드 단계에서 생성된 이미지 매니페스트 다이제스트 (sha256:...)'
         required: true
         type: string
       # Pull 대상 GHCR 이미지 URI (SHA 태그 포함)
       ghcr_image_uri_sha: # 예: ghcr.io/owner/repo:sha-abcdef1
-        description: 'Full URI of the image in GHCR with SHA tag (for pulling)'
+        description: 'Pull할 GHCR 이미지의 전체 URI (SHA 태그 포함)'
         required: true
         type: string
     secrets:
       dockerhub_username:
-        description: 'Docker Hub username'
+        description: 'Docker Hub 사용자 이름'
         required: true
       dockerhub_token:
-        description: 'Docker Hub access token'
+        description: 'Docker Hub 접근 토큰 (비밀번호 대신 권장)'
         required: true
     outputs: # 푸시 실행 여부 출력
       pushed:
-        description: "'true' if image was pushed, 'false' otherwise"
+        description: "이미지가 Docker Hub에 푸시되었으면 'true', 아니면 'false'"
         value: ${{ jobs.push_dh_job.outputs.pushed_output }}
 
 jobs:
@@ -65,6 +65,7 @@ jobs:
           password: ${{ github.token }} # GITHUB_TOKEN 사용
 
       # 3. skopeo 설치 (Docker Hub 이미지 다이제스트 검사용)
+      # skopeo: Docker Hub 등 외부 레지스트리의 이미지 정보를 Docker 클라이언트 없이 조회 가능
       - name: Install skopeo
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends skopeo && sudo rm -rf /var/lib/apt/lists/*
@@ -77,7 +78,7 @@ jobs:
             DH_USER: ${{ secrets.dockerhub_username }}
             DH_REPO: ${{ inputs.dockerhub_repo_name }} # 입력받은 리포 이름 사용
         run: |
-            # Docker Hub 사용자명 및 리포 이름 소문자 변환 (공식 권장)
+            # Docker Hub API 및 도구 호환성을 위해 사용자명/리포명 소문자 변환
             DH_USER_LC=$(echo "$DH_USER" | tr '[:upper:]' '[:lower:]')
             DH_REPO_LC=$(echo "$DH_REPO" | tr '[:upper:]' '[:lower:]')
             DH_IMAGE_LATEST="${DH_USER_LC}/${DH_REPO_LC}:latest"
@@ -85,8 +86,8 @@ jobs:
             echo "Checking manifest digest for Docker Hub image: $DH_IMAGE_LATEST"
             LATEST_DIGEST="" # 초기화
 
-            # skopeo inspect 실행하여 매니페스트 다이제스트 가져오기 (오류 시 빈 문자열 반환)
-            LATEST_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://$DH_IMAGE_LATEST || echo "") # 오류 발생 시 빈 문자열 반환은 유지하되, stderr 출력 확인
+            # skopeo inspect로 :latest 이미지의 다이제스트 조회 시도
+            LATEST_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://$DH_IMAGE_LATEST || echo "")
 
             if [ -n "$LATEST_DIGEST" ]; then
               echo "Current :latest manifest digest in Docker Hub: $LATEST_DIGEST"
@@ -139,7 +140,7 @@ jobs:
           docker pull $GHCR_IMAGE_SHA
           if [ $? -ne 0 ]; then echo "Error: Failed to pull image from GHCR"; exit 1; fi
 
-          # Docker Hub용 전체 이름 구성 (사용자명/리포명)
+          # Docker Hub용 전체 이름 구성 (사용자명/리포명 소문자 변환)
           DH_USER_LC=$(echo "$DH_USER" | tr '[:upper:]' '[:lower:]')
           DH_REPO_LC=$(echo "$DH_REPO" | tr '[:upper:]' '[:lower:]')
           DH_IMAGE_BASE="${DH_USER_LC}/${DH_REPO_LC}"

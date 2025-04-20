@@ -4,6 +4,9 @@ name: Reusable - C++ Build & Test (Linux)
 
 on:
   workflow_call: # 재사용 가능하도록 설정
+    secrets: # 호출 워크플로우로부터 받을 시크릿 명시
+      GOOGLE_MAPS_API_KEY: # CTest 실행 시 필요한 API 키
+        required: true # 이 시크릿은 필수임
 
 jobs:
   build_job:
@@ -68,6 +71,17 @@ jobs:
       # 6. CMake Build
       - name: Build Project using CMake (Linux)
         run: cmake --build build -j $(nproc)
+
+      # Debugging: Check if GOOGLE_MAPS_API_KEY is set
+      - name: Check if GOOGLE_MAPS_API_KEY is set
+        run: |
+          if [ -n "${{ secrets.GOOGLE_MAPS_API_KEY }}" ]; then
+            echo "GOOGLE_MAPS_API_KEY is set."
+          else
+            echo "GOOGLE_MAPS_API_KEY is NOT set or empty."
+            # If the key is absolutely required for tests, uncomment the next line to fail early
+            # exit 1
+          fi
 
       # 7. CTest 실행
       - name: Run tests via CTest (Linux)

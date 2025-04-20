@@ -20,6 +20,8 @@ name: CI/CD - CherryRecorder Server Orchestrator
 #                     (reusable-docker-push-dh 에서 사용)
 # DOCKERHUB_TOKEN: Docker Hub 로그인 시 사용할 Access Token (일반 비밀번호 대신 사용 권장).
 #                  (reusable-docker-push-dh 에서 사용)
+# GOOGLE_MAPS_API_KEY: CTest 및 ECS 컨테이너에서 사용할 Google Maps API 키.
+#                      (reusable-build-test, reusable-deploy-aws 에서 사용)
 #
 # --- Variables (설정값: 값은 로그에 노출될 수 있음) ---
 # [AWS 기본 설정]
@@ -31,7 +33,8 @@ name: CI/CD - CherryRecorder Server Orchestrator
 # [ECR / Docker Hub 설정]
 # AWS_ECR_REPOSITORY:  ECR 리포지토리 이름 (예: cherryrecorder-server).
 #                      (reusable-docker-build, reusable-docker-push-ecr 에서 사용)
-# DOCKERHUB_REPO:      Docker Hub 리포지토리 이름 (형식: <사용자명>/<리포명>, 예: kugorang/cherryrecorder-server).
+# DOCKERHUB_REPO:      Docker Hub 리포지토리 이름 (사용자명 제외, 예: cherryrecorder-server).
+#                      Docker Hub 사용자명은 DOCKERHUB_USERNAME 시크릿에서 가져옴.
 #                      (reusable-docker-build, reusable-docker-push-dh 에서 사용)
 #
 # [ECS 배포 대상 정보]
@@ -84,6 +87,8 @@ jobs:
   call_build_test:
     name: 1. Build & Test (Linux)
     uses: ./.github/workflows/reusable-build-test.yml
+    secrets:
+      GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
 
   # --- 2. 문서 생성 ---
   call_docs_build:
@@ -145,14 +150,14 @@ jobs:
     uses: ./.github/workflows/reusable-docker-push-dh.yml
     needs: call_docker_build
     with:
-      # Docker Hub 기본 리포 이름 전달
-      dockerhub_repo_name: ${{ vars.DOCKERHUB_REPO }} # Variable에서 기본 이름 가져오기
-      image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }} # 이전 이름으로 변경
+      # Docker Hub 기본 리포 이름 전달 (사용자명 제외)
+      dockerhub_repo_name: ${{ vars.DOCKERHUB_REPO }}
+      image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
       image_tag_latest: 'latest'
       # Pull 대상 GHCR 이미지 URI 전달
-      ghcr_image_uri_sha: ${{ needs.call_docker_build.outputs.ghcr_image_uri_sha }} # 이전 이름으로 변경
+      ghcr_image_uri_sha: ${{ needs.call_docker_build.outputs.ghcr_image_uri_sha }}
       # 빌드된 이미지 다이제스트 전달
-      image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }} # 이전 이름으로 변경
+      image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }}
     secrets:
       dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
       dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -163,19 +168,19 @@ jobs:
   call_push_ecr:
     name: 6. Push Image to AWS ECR (If Changed)
     if: needs.call_docker_build.result == 'success'
-    uses: ./.github/workflows/reusable-docker-push-ecr.yml # ECR 푸시 워크플로우 경로 확인
+    uses: ./.github/workflows/reusable-docker-push-ecr.yml
     needs: call_docker_build
     permissions:
       id-token: write
       packages: read # GHCR Pull 위해 필요할 수 있음
     with:
-      image_name_ecr: ${{ needs.call_docker_build.outputs.image_name_ecr }} # 이전 이름으로 변경
-      image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }} # 이전 이름으로 변경
+      image_name_ecr: ${{ needs.call_docker_build.outputs.image_name_ecr }}
+      image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
       image_tag_latest: 'latest'
       aws_region: ${{ vars.AWS_REGION }}
-      image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }} # 이전 이름으로 변경
+      image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }}
       # Pull 대상 GHCR 이미지 URI 전달
-      ghcr_image_uri_sha: ${{ needs.call_docker_build.outputs.ghcr_image_uri_sha }} # 이전 이름으로 변경
+      ghcr_image_uri_sha: ${{ needs.call_docker_build.outputs.ghcr_image_uri_sha }}
     secrets:
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
     # outputs: # 푸시 발생 여부 필요 시
@@ -197,8 +202,8 @@ jobs:
       contents: read
     with:
       # ECR 이미지 정보 (SHA 태그 사용)
-      image_name_ecr: ${{ needs.call_docker_build.outputs.image_name_ecr }} # 이전 이름으로 변경
-      image_tag: ${{ needs.call_docker_build.outputs.image_tag_sha }} # 이전 이름으로 변경
+      image_name_ecr: ${{ needs.call_docker_build.outputs.image_name_ecr }}
+      image_tag: ${{ needs.call_docker_build.outputs.image_tag_sha }}
       # AWS 및 ECS 정보 (Variables 사용)
       aws_region: ${{ vars.AWS_REGION }}
       ecs_cluster_name: ${{ vars.ECS_CLUSTER_NAME }}
