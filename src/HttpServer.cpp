@@ -1,20 +1,15 @@
 #include "HttpServer.hpp"
 #include <boost/beast/version.hpp>
-#include <boost/config.hpp> // BOOST_ASSERT 사용
 #include <boost/asio/dispatch.hpp> // net::dispatch 사용
-#include <boost/beast/http/write.hpp> // http::async_write 사용
-#include <boost/beast/http/read.hpp> // http::async_read 사용
 #include <boost/core/ignore_unused.hpp> // boost::ignore_unused 사용
 
 #include <chrono>
 #include <exception> // std::terminate, std::exception
-#include <iostream>
 #include <memory>
 #include <thread> // std::thread
 #include <vector>
 #include <string> // std::string 사용
 #include <cstdio> // fprintf 사용
-#include <utility> // std::move 사용
 #include <sstream> // std::stringstream (스레드 ID 로깅용)
 
 // 필요한 네임스페이스 정의 (HttpServer.hpp 와 동일하게)
@@ -40,21 +35,29 @@ using tcp = boost::asio::ip::tcp;
   * Beast의 비동기 작업을 사용하여 요청을 읽고 응답을 보낸다.
   * 현재 `/health` 엔드포인트를 지원한다.
   */
+#include "handlers/PlacesApiHandler.hpp"
+
+// 에러 출력 헬퍼 함수
+void fail(beast::error_code ec, char const* what)
+{
+    fprintf(stderr, "Error: %s: %s\n", what, ec.message().c_str());
+}
+
 class HttpSession : public std::enable_shared_from_this<HttpSession>
 {
     beast::tcp_stream stream_; ///< @brief TCP 소켓을 감싸는 Beast 스트림 객체. 비동기 I/O 작업을 수행한다.
     beast::flat_buffer buffer_; ///< @brief HTTP 메시지 읽기/쓰기를 위한 버퍼.
-    std::shared_ptr<std::string const> doc_root_; ///< @brief (옵션) 정적 파일 루트 디렉토리 경로 공유 포인터. 현재 사용되지 않음.
     http::request<http::string_body> req_; ///< @brief 수신한 HTTP 요청 메시지 객체. 본문은 문자열로 저장.
+    std::shared_ptr<PlacesApiHandler> places_handler_; ///< @brief 장소 API 요청 처리 핸들러.
 
 public:
     /**
      * @brief HttpSession 생성자.
      * @param socket 클라이언트와 연결된 TCP 소켓. 소유권이 이동된다.
-     * @param doc_root 정적 파일 루트 디렉토리 경로 공유 포인터.
+     * @param places_handler Places API 요청 처리 핸들러.
      */
-    explicit HttpSession(tcp::socket&& socket, std::shared_ptr<std::string const> const& doc_root)
-        : stream_(std::move(socket)), doc_root_(doc_root) {
+    explicit HttpSession(tcp::socket&& socket, std::shared_ptr<PlacesApiHandler> places_handler)
+        : stream_(std::move(socket)), places_handler_(places_handler) {
         fprintf(stdout, "[HttpSession %p] Created.\n", (void*)this);
     }
 
@@ -142,12 +145,85 @@ private:
         if (req_.method() == http::verb::get && req_.target() == "/health") {
             handle_health_check_request(); // Health Check 요청 처리
         }
+        else if (req_.method() == http::verb::post && req_.target() == "/places/nearby") {
+            fprintf(stdout, "[HttpSession %p] Places API 요청 감지: /places/nearby\n", (void*)this);
+            handle_places_nearby_request(); // 주변 장소 검색 요청 처리
+        }
+        else if (req_.method() == http::verb::post && req_.target() == "/places/search") {
+            fprintf(stdout, "[HttpSession %p] Places API 요청 감지: /places/search\n", (void*)this);
+            handle_places_search_request(); // 장소 검색 요청 처리
+        }
+        else if (req_.method() == http::verb::post && req_.target() == "/places/details") {
+            // fprintf(stdout, "[HttpSession %p] Places API 요청 감지: /places/details (POST - Deprecated)\n", (void*)this);
+            // handle_place_details_request(); // 기존 방식 제거
+            handle_not_found_request(); // POST /places/details는 이제 지원하지 않음
+        }
+        else if (req_.method() == http::verb::get && req_.target().starts_with("/places/details/")) {
+            fprintf(stdout, "[HttpSession %p] Places API Details GET 요청 감지: %s\n", (void*)this, std::string(req_.target()).c_str());
+            // 경로에서 Place ID 추출
+            std::string target_path(req_.target()); // string_view를 std::string으로 변환
+            std::string place_id = target_path.substr(std::string("/places/details/").length());
+            if (!place_id.empty()) {
+                handle_place_details_request(place_id); // 추출한 ID 전달
+            }
+            else {
+                // Place ID가 없는 경우 잘못된 요청 처리
+                handle_bad_request("Missing Place ID in /places/details/ request.");
+            }
+        }
+        else if (req_.target() == "/status") {
+            // HTTP 200 OK 응답 생성
+            http::response<http::string_body> res{http::status::ok, req_.version()};
+            res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+            res.set(http::field::content_type, "application/json"); // Content-Type 설정
+            res.keep_alive(req_.keep_alive());
+
+            // JSON 응답 본문 설정
+            res.body() = "{\"status\": \"ok\"}"; // 간단한 상태 메시지
+            res.prepare_payload(); // Content-Length 등 자동 계산
+
+            // 응답 전송 (기존 send_response 메서드 사용)
+            send_response(std::move(res));
+            return; // 처리 완료
+        }
         else {
             // 다른 모든 요청은 404 Not Found 처리
             handle_not_found_request();
             // TODO: 실제 서비스 로직(정적 파일 제공, API 처리 등) 추가 구현 필요
             // 예: handle_static_file_request(req_.target());
         }
+    }
+
+    /**
+     * @brief 주변 장소 검색 요청 처리
+     */
+    void handle_places_nearby_request() {
+        fprintf(stdout, "[HttpSession %p] Handling /places/nearby request.\n", (void*)this);
+        http::response<http::string_body> res = places_handler_->handleNearbySearch(req_);
+        send_response(std::move(res));
+    }
+    
+    /**
+     * @brief 장소 검색 요청 처리
+     */
+    void handle_places_search_request() {
+        fprintf(stdout, "[HttpSession %p] Handling /places/search request.\n", (void*)this);
+        http::response<http::string_body> res = places_handler_->handleTextSearch(req_);
+        send_response(std::move(res));
+    }
+    
+    /**
+     * @brief 장소 상세 정보 요청 처리 (Place ID 인자 받도록 수정)
+     * @param place_id URL 경로에서 추출한 장소 ID
+     */
+    void handle_place_details_request(const std::string& place_id) { // place_id 인자 추가
+        fprintf(stdout, "[HttpSession %p] Handling /places/details request for ID: %s\n", (void*)this, place_id.c_str());
+        
+        // Google Places API 상세 정보 요청 처리 후 응답 반환
+        ///< @note 현재는 Google API 응답 형식을 그대로 클라이언트에 반환합니다.
+        ///< @todo 필요 시 응답 형식을 변환하는 transformPlaceDetails 함수를 구현할 수 있습니다.
+        http::response<http::string_body> res = places_handler_->handlePlaceDetails(place_id);
+        send_response(std::move(res));
     }
 
     /**
@@ -168,6 +244,20 @@ private:
         // 응답 본문 길이에 맞춰 Content-Length 헤더 등 자동 계산 및 설정
         res.prepare_payload();
         // 생성된 응답 전송
+        send_response(std::move(res));
+    }
+
+    /**
+     * @brief 잘못된 요청(Bad Request) 처리 함수 추가
+     * @param why 오류 사유 문자열
+     */
+    void handle_bad_request(beast::string_view why) {
+        fprintf(stdout, "[HttpSession %p] Handling Bad Request (400): %s\n", (void*)this, std::string(why).c_str());
+        http::response<http::string_body> res{http::status::bad_request, 11};
+        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+        res.set(http::field::content_type, "text/plain");
+        res.body() = std::string(why);
+        res.prepare_payload();
         send_response(std::move(res));
     }
 
@@ -256,13 +346,13 @@ private:
     void do_close() {
         fprintf(stdout, "[HttpSession %p] Closing connection.\n", (void*)this);
         beast::error_code ec;
-        // 전송 방향 셧다운 시도. 오류 발생 가능성 있음 (이미 닫혔거나 등)
+        ///< 전송 방향 셧다운 시도. 오류 발생 가능성 있음 (이미 닫혔거나 등)
         stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
         if (ec) {
             fprintf(stderr, "[HttpSession %p] Shutdown(send) warning: %s\n", (void*)this, ec.message().c_str());
         }
-        // 스트림/소켓의 close는 HttpSession 객체가 소멸될 때 자동으로 처리됨.
-        // 명시적 close가 필요하다면 여기에 추가. stream_.close(ec);
+        ///< 스트림/소켓의 close는 HttpSession 객체가 소멸될 때 자동으로 처리됨.
+        ///< 명시적 close가 필요하다면 여기에 추가. stream_.close(ec);
     }
 };
 
@@ -273,48 +363,60 @@ private:
  */
 HttpListener::HttpListener(
     net::io_context& ioc,
-    tcp::endpoint endpoint,
-    std::shared_ptr<std::string const> const& doc_root)
+    tcp::endpoint endpoint)
     : ioc_(ioc)
-    , acceptor_(net::make_strand(ioc)) // Acceptor는 strand 위에서 동작하도록 생성 (스레드 안전성 강화)
-    , doc_root_(doc_root)
+    , acceptor_(net::make_strand(ioc))
 {
     beast::error_code ec;
 
-    // 1. Acceptor 열기 (지정된 프로토콜 사용)
+    // 지정된 endpoint에 TCP acceptor를 열고 
+    // reuse_address 옵션 활성화 (동일 포트 재사용 가능)
     acceptor_.open(endpoint.protocol(), ec);
     if (ec) {
-        fprintf(stderr, "[HttpListener %p] Acceptor open error: %s\n", (void*)this, ec.message().c_str());
-        // 생성자에서 예외 던지기 또는 상태 플래그 설정 고려
-        return; // 또는 throw
+        fail(ec, "open");
+        return;
     }
 
-    // 2. SO_REUSEADDR 소켓 옵션 설정
     acceptor_.set_option(net::socket_base::reuse_address(true), ec);
     if (ec) {
-        fprintf(stderr, "[HttpListener %p] Set reuse_address option error: %s\n", (void*)this, ec.message().c_str());
-        acceptor_.close(); // 실패 시 리소스 정리
-        return; // 또는 throw
+        fail(ec, "set_option");
+        return;
     }
 
-    // 3. 지정된 로컬 엔드포인트에 바인딩
+    // 지정된 endpoint에 바인딩
     acceptor_.bind(endpoint, ec);
     if (ec) {
-        fprintf(stderr, "[HttpListener %p] Bind error to %s:%d : %s\n", (void*)this,
-            endpoint.address().to_string().c_str(), endpoint.port(), ec.message().c_str());
-        acceptor_.close();
-        return; // 또는 throw
+        fail(ec, "bind");
+        return;
     }
 
-    // 4. 리스닝 시작
+    // 요청 대기 큐 시작
     acceptor_.listen(net::socket_base::max_listen_connections, ec);
     if (ec) {
-        fprintf(stderr, "[HttpListener %p] Listen error: %s\n", (void*)this, ec.message().c_str());
-        acceptor_.close();
-        return; // 또는 throw
+        fail(ec, "listen");
+        return;
     }
-    fprintf(stdout, "[HttpListener %p] Listening on %s:%d\n", (void*)this,
-        endpoint.address().to_string().c_str(), endpoint.port());
+    
+    // 여기서 PlacesApiHandler 초기화 (한 번만 생성)
+    const char* api_key = std::getenv("GOOGLE_MAPS_API_KEY");
+    if (api_key != nullptr && strlen(api_key) > 0) {
+        fprintf(stdout, "[HttpListener %p] Google Maps API 키 로드됨 (길이: %zu)\n", 
+               (void*)this, strlen(api_key));
+    } else {
+        fprintf(stderr, "[HttpListener %p] 심각한 오류: GOOGLE_MAPS_API_KEY 환경 변수가 설정되지 않음\n", 
+               (void*)this);
+        fprintf(stderr, "[HttpListener %p] API 키 없이 서버를 실행할 수 없습니다. 환경 변수를 설정하고 다시 시작하세요.\n", 
+               (void*)this);
+        
+        // 서버 종료 처리 (C++ 예외를 던져 초기화 중단)
+        throw std::runtime_error("GOOGLE_MAPS_API_KEY 환경 변수가 없거나 비어 있어 서버를 시작할 수 없습니다.");
+    }
+    
+    std::string google_api_key = api_key;
+    
+    // 장소 API 핸들러 생성 (멤버 변수에 저장)
+    places_handler_ = std::make_shared<PlacesApiHandler>(google_api_key);
+    fprintf(stdout, "[HttpListener %p] PlacesApiHandler 생성됨 (싱글톤)\n", (void*)this);
 }
 
 /**
@@ -342,28 +444,24 @@ void HttpListener::do_accept() {
  * @brief 비동기 accept 완료 콜백 함수 구현부.
  */
 void HttpListener::on_accept(beast::error_code ec, tcp::socket socket) {
-    if (ec) { // Accept 중 오류 발생
-        fprintf(stderr, "[HttpListener %p] Accept error: %s\n", (void*)this, ec.message().c_str());
-        // 오류 처리 로직 (예: 특정 오류 코드에 따라 리스너 중지 또는 로깅 후 계속)
-        // 여기서는 일단 로깅만 하고 다음 accept 시도
+    // 오류 발생 시 보고
+    if (ec) {
+        fail(ec, "accept");
     }
-    else { // Accept 성공
-        try {
-            fprintf(stdout, "[HttpListener %p] Accepted connection from %s:%d\n", (void*)this,
-                socket.remote_endpoint().address().to_string().c_str(),
-                socket.remote_endpoint().port());
-        }
-        catch (...) { /* remote_endpoint 실패 가능성 */
-            fprintf(stdout, "[HttpListener %p] Accepted connection (remote endpoint info unavailable).\n", (void*)this);
-        }
+    else {
+        // 클라이언트의 IP 주소를 출력
+        fprintf(stdout, "[HttpListener %p] Accepted connection from %s:%d\n",
+               (void*)this,
+               socket.remote_endpoint().address().to_string().c_str(),
+               socket.remote_endpoint().port());
 
         // 새 연결에 대한 HttpSession 객체 생성 및 실행
         // std::move(socket)으로 소켓 소유권 이전
-        std::make_shared<HttpSession>(std::move(socket), doc_root_)->run();
+        std::make_shared<HttpSession>(std::move(socket), places_handler_)->run();
     }
 
     // 오류 발생 여부와 관계없이 다음 연결 수락 준비 (리스너가 중지되지 않는 한 계속)
-    // TODO: 리스너 중지 로직 필요 시 추가 (예: 특정 오류 발생 시 또는 외부 신호 수신 시)
+    ///< @todo 리스너 중지 로직 필요 시 추가 (예: 특정 오류 발생 시 또는 외부 신호 수신 시)
     do_accept();
 }
 
@@ -372,31 +470,29 @@ void HttpListener::on_accept(beast::error_code ec, tcp::socket socket) {
 /**
  * @brief HttpServer 생성자 구현부.
  */
-HttpServer::HttpServer(const std::string& address, unsigned short port, int threads, const std::string& doc_root)
+HttpServer::HttpServer(const std::string& address, unsigned short port, int threads)
     : address_(address)
     , port_(port)
     , threads_(threads)
-    , doc_root_(doc_root)
     // io_context 생성 시 스레드 수(concurrency hint) 지정. 1 이상이어야 함.
     , ioc_(threads_ > 0 ? threads_ : 1)
-    , shared_doc_root_(std::make_shared<std::string const>(doc_root_)) // doc_root 문자열 복사하여 공유 포인터 생성
 {
-    fprintf(stdout, "[HttpServer %p] Created with address=%s, port=%d, threads=%d, doc_root=%s\n",
-        (void*)this, address_.c_str(), port_, threads_, doc_root_.c_str());
+    fprintf(stdout, "[HttpServer %p] Created with address=%s, port=%d, threads=%d\n",
+        (void*)this, address_.c_str(), port_, threads_);
 }
 
 /**
  * @brief 서버 실행 함수 구현부.
  */
 void HttpServer::run() {
-    auto const addr = net::ip::make_address(address_); // 문자열 주소를 Asio 주소 객체로 변환
+    auto const addr = net::ip::make_address(address_); ///< 문자열 주소를 Asio 주소 객체로 변환
     auto const port = static_cast<unsigned short>(port_);
-    int num_threads = threads_; // 사용할 실제 스레드 수
+    int num_threads = threads_; ///< 사용할 실제 스레드 수
 
     // 스레드 수 결정 (0 이하면 시스템 코어 수 기반으로 결정)
     if (num_threads <= 0) {
         unsigned int hardware_threads = std::thread::hardware_concurrency();
-        // hardware_concurrency()가 0 또는 예상치 못한 값 반환 시 기본값(예: 2) 사용
+        ///< hardware_concurrency()가 0 또는 예상치 못한 값 반환 시 기본값(예: 2) 사용
         num_threads = (hardware_threads > 0) ? static_cast<int>(hardware_threads) : 2;
         fprintf(stdout, "[HttpServer %p] Thread count not specified or invalid, using system hardware concurrency: %d\n", (void*)this, num_threads);
     }
@@ -407,43 +503,43 @@ void HttpServer::run() {
 
     // Listener 생성 및 실행 (io_context 및 엔드포인트 전달)
     try {
-        listener_ = std::make_shared<HttpListener>(ioc_, tcp::endpoint{ addr, port }, shared_doc_root_);
-        listener_->run(); // Listener의 비동기 accept 루프 시작
+        listener_ = std::make_shared<HttpListener>(ioc_, tcp::endpoint{ addr, port });
+        listener_->run(); ///< Listener의 비동기 accept 루프 시작
     }
     catch (const std::exception& e) {
         fprintf(stderr, "[HttpServer %p] Failed to create or run listener: %s\n", (void*)this, e.what());
         // 리스너 생성 실패 시 서버 실행 불가 처리
-        return; // 또는 예외 재throw
+        return; ///< 또는 예외 재throw
     }
 
     // IO 스레드 생성 및 io_context 실행 시작
-    io_threads_.reserve(num_threads); // 벡터 메모리 미리 할당
+    io_threads_.reserve(num_threads); ///< 벡터 메모리 미리 할당
     for (int i = 0; i < num_threads; ++i) {
-        io_threads_.emplace_back([this, i] { // 각 스레드가 실행할 람다 함수
-            std::stringstream thread_id_ss; // 로깅을 위한 스레드 ID 추출
+        io_threads_.emplace_back([this, i] { ///< 각 스레드가 실행할 람다 함수
+            std::stringstream thread_id_ss; ///< 로깅을 위한 스레드 ID 추출
             thread_id_ss << std::this_thread::get_id();
             std::string thread_id_str = thread_id_ss.str();
             try {
                 fprintf(stdout, "[HTTP IO Thread #%d ID: %s] Starting ioc.run().\n", i, thread_id_str.c_str());
-                // 각 스레드는 io_context의 이벤트 루프 실행 (블로킹 호출)
-                // io_context가 중지되거나 모든 작업이 완료될 때까지 실행됨
+                ///< 각 스레드는 io_context의 이벤트 루프 실행 (블로킹 호출)
+                ///< io_context가 중지되거나 모든 작업이 완료될 때까지 실행됨
                 ioc_.run();
                 fprintf(stdout, "[HTTP IO Thread #%d ID: %s] ioc.run() finished cleanly.\n", i, thread_id_str.c_str());
             }
             catch (const std::exception& e) {
-                // io_context.run() 내부에서 발생한 예외 처리
+                ///< io_context.run() 내부에서 발생한 예외 처리
                 fprintf(stderr, "[HTTP IO Thread #%d ID: %s] Exception caught in ioc.run(): %s\n", i, thread_id_str.c_str(), e.what());
-                // 필요 시 추가 에러 처리 (예: 서버 강제 종료)
-                // std::terminate();
+                ///< 필요 시 추가 에러 처리 (예: 서버 강제 종료)
+                ///< std::terminate();
             }
             catch (...) {
-                // 그 외 알 수 없는 예외 처리
+                ///< 그 외 알 수 없는 예외 처리
                 fprintf(stderr, "[HTTP IO Thread #%d ID: %s] Unknown exception caught in ioc.run().\n", i, thread_id_str.c_str());
-                // std::terminate();
+                ///< std::terminate();
             }
             });
     }
-    // run() 함수는 IO 스레드들을 시작시킨 후 반환됨. 메인 스레드는 다른 작업을 하거나 대기 상태로 들어감.
+    ///< run() 함수는 IO 스레드들을 시작시킨 후 반환됨. 메인 스레드는 다른 작업을 하거나 대기 상태로 들어감.
     fprintf(stdout, "[HttpServer %p] run() method finished, IO threads are running.\n", (void*)this);
 }
 
@@ -454,17 +550,14 @@ void HttpServer::stop() {
     fprintf(stdout, "[HttpServer %p] Initiating stop sequence...\n", (void*)this);
 
     // 1. Acceptor 중지 (새 연결 수락 중단)
-    // HttpListener에 acceptor를 닫는 메서드가 있다면 호출하는 것이 좋음.
-    // 예: if (listener_) { listener_->stop_accepting(); }
-    // 현재는 io_context 중지만으로 acceptor의 async_accept 콜백이 취소(operation_aborted)되도록 유도.
-    // 명시적으로 acceptor_.cancel() 또는 acceptor_.close() 호출 고려 가능.
-    // if (listener_) { /* listener->acceptor_.cancel(); or close(); */ }
+    ///< @todo HttpListener에 acceptor를 닫는 메서드를 추가하면 더 명확한 종료가 가능함
+    ///< 현재는 io_context 중지만으로 acceptor의 async_accept 콜백이 취소(operation_aborted)되도록 유도
     fprintf(stdout, "[HttpServer %p] Stopping listener (via io_context stop)...\n", (void*)this);
 
 
     // 2. io_context 중지 요청
-    // 모든 IO 스레드의 ioc_.run() 호출이 반환되도록 함.
-    // 아직 처리되지 않은 비동기 작업 핸들러는 실행되지 않을 수 있음 (즉시 중단 아님).
+    ///< 모든 IO 스레드의 ioc_.run() 호출이 반환되도록 함
+    ///< 아직 처리되지 않은 비동기 작업 핸들러는 실행되지 않을 수 있음 (즉시 중단 아님)
     fprintf(stdout, "[HttpServer %p] Requesting io_context stop (ioc_.stop())...\n", (void*)this);
     if (!ioc_.stopped()) {
         ioc_.stop();
@@ -478,29 +571,26 @@ void HttpServer::stop() {
     fprintf(stdout, "[HttpServer %p] Waiting for %zu IO threads to join...\n", (void*)this, io_threads_.size());
     for (size_t i = 0; i < io_threads_.size(); ++i) {
         std::thread& t = io_threads_[i];
-        std::stringstream ss; // 스레드 ID 로깅용
+        std::stringstream ss; ///< 스레드 ID 로깅용
         ss << t.get_id();
         if (t.joinable()) {
             fprintf(stdout, "[HttpServer %p] Joining IO thread #%zu (ID: %s)...\n", (void*)this, i, ss.str().c_str());
-            t.join(); // 해당 스레드가 완전히 종료될 때까지 대기
+            t.join(); ///< 해당 스레드가 완전히 종료될 때까지 대기
             fprintf(stdout, "[HttpServer %p] IO thread #%zu (ID: %s) joined.\n", (void*)this, i, ss.str().c_str());
         }
         else {
-            // 이미 종료되었거나 시작되지 않은 스레드일 수 있음
+            ///< 이미 종료되었거나 시작되지 않은 스레드일 수 있음
             fprintf(stderr, "[HttpServer %p] Warning: IO thread #%zu (ID: %s) is not joinable (already joined or not started?).\n", (void*)this, i, ss.str().c_str());
         }
     }
-    io_threads_.clear(); // 스레드 벡터 비우기
+    io_threads_.clear(); ///< 스레드 벡터 비우기
     fprintf(stdout, "[HttpServer %p] All HTTP IO threads finished.\n", (void*)this);
 
     // 4. 리소스 정리 (스레드 종료 후 안전하게 수행)
     fprintf(stdout, "[HttpServer %p] Resetting listener and shared resources...\n", (void*)this);
     if (listener_) {
-        // Listener 소멸자에서 acceptor가 닫히도록 보장해야 함.
-        listener_.reset(); // shared_ptr 참조 카운트 감소, 0이 되면 소멸자 호출
-    }
-    if (shared_doc_root_) {
-        shared_doc_root_.reset();
+        ///< Listener 소멸자에서 acceptor가 닫히도록 보장해야 함
+        listener_.reset(); ///< shared_ptr 참조 카운트 감소, 0이 되면 소멸자 호출
     }
 
     fprintf(stdout, "[HttpServer %p] Stop sequence complete.\n", (void*)this);

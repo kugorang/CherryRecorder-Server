@@ -3,20 +3,21 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/strand.hpp> // strand 사용 권장
+#include <boost/asio/strand.hpp> ///< strand 사용 권장
 #include <cstdlib>
 #include <memory>
 #include <string>
 #include <vector>
 #include <thread>
+#include "handlers/PlacesApiHandler.hpp"
 
-namespace beast = boost::beast;         // from <boost/beast.hpp>
-namespace http = beast::http;           // from <boost/beast/http.hpp>
-namespace net = boost::asio;            // from <boost/asio.hpp>
-using tcp = boost::asio::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
+namespace beast = boost::beast;         ///< from <boost/beast.hpp>
+namespace http = beast::http;           ///< from <boost/beast/http.hpp>
+namespace net = boost::asio;            ///< from <boost/asio.hpp>
+using tcp = boost::asio::ip::tcp;       ///< from <boost/asio/ip/tcp.hpp>
 
 // Forward declaration
-class HttpSession; // 실제 구현은 HttpServer.cpp 에 있음
+class HttpSession; ///< 실제 구현은 HttpServer.cpp 에 있음
 
 /**
  * @file HttpServer.hpp
@@ -25,7 +26,8 @@ class HttpSession; // 실제 구현은 HttpServer.cpp 에 있음
  * 이 파일은 HTTP 연결을 수락하는 `HttpListener` 클래스와
  * 전체 HTTP 서버의 생명주기 및 스레드 관리를 담당하는 `HttpServer` 클래스를 정의한다.
  * 실제 요청 처리는 `HttpSession` 클래스(`HttpServer.cpp`에 정의됨)가 담당한다.
- * @see HttpListener, HttpServer, HttpSession
+ * Places API 요청은 `PlacesApiHandler`를 통해 처리된다.
+ * @see HttpListener, HttpServer, HttpSession, PlacesApiHandler
  */
 
  /**
@@ -38,7 +40,7 @@ class HttpListener : public std::enable_shared_from_this<HttpListener>
 {
     net::io_context& ioc_; ///< @brief 비동기 작업을 위한 Boost.Asio io_context 참조.
     tcp::acceptor acceptor_; ///< @brief 클라이언트 연결 요청을 수락하는 TCP acceptor. Strand 위에서 동작 권장.
-    std::shared_ptr<std::string const> doc_root_; ///< @brief (옵션) 정적 파일 제공 시 사용할 루트 디렉토리 경로.
+    std::shared_ptr<PlacesApiHandler> places_handler_; ///< PlacesApiHandler 인스턴스 멤버 변수
 
 public:
     /**
@@ -47,12 +49,10 @@ public:
      * Acceptor를 생성, 열고, 옵션 설정(reuse_address), 지정된 엔드포인트에 바인딩 및 리스닝을 시작한다.
      * @param ioc Boost.Asio io_context 참조.
      * @param endpoint 리슨할 로컬 TCP 엔드포인트 (IP 주소 및 포트).
-     * @param doc_root 정적 파일 루트 디렉토리 경로를 담은 공유 포인터. (예시, 필요 없으면 제거 가능)
      */
     HttpListener(
         net::io_context& ioc,
-        tcp::endpoint endpoint,
-        std::shared_ptr<std::string const> const& doc_root); // doc_root는 예시, 필요 없으면 제거
+        tcp::endpoint endpoint);
 
     /**
      * @brief 리스너를 시작하여 비동기적으로 연결 수락을 시작한다.
@@ -95,9 +95,8 @@ public:
      * @param address 바인딩할 IP 주소 (예: "0.0.0.0").
      * @param port 리슨할 HTTP 포트 번호.
      * @param threads 사용할 IO 스레드 수. 0 이하일 경우 시스템 하드웨어 스레드 수를 기반으로 결정.
-     * @param doc_root 정적 파일 루트 디렉토리 경로. (예시, 필요 없으면 제거 가능)
      */
-    HttpServer(const std::string& address, unsigned short port, int threads, const std::string& doc_root);
+    HttpServer(const std::string& address, unsigned short port, int threads);
 
     /**
      * @brief 서버를 시작한다.
@@ -120,10 +119,8 @@ private:
     std::string address_;       ///< @brief 서버가 바인딩될 IP 주소.
     unsigned short port_;       ///< @brief 서버가 리슨할 포트 번호.
     int threads_;               ///< @brief IO 작업을 처리할 스레드 수.
-    std::string doc_root_;      ///< @brief (옵션) 정적 파일 루트 디렉토리 경로.
 
     net::io_context ioc_; ///< @brief Beast HTTP 서버용 자체 io_context. 스레드 수를 생성 시 지정.
     std::vector<std::thread> io_threads_; ///< @brief io_context를 실행하는 IO 스레드들.
     std::shared_ptr<HttpListener> listener_{ nullptr }; ///< @brief HTTP 연결을 수락하는 리스너 객체.
-    std::shared_ptr<std::string const> shared_doc_root_{ nullptr }; ///< @brief doc_root를 Listener 및 Session과 공유하기 위한 포인터.
 };
