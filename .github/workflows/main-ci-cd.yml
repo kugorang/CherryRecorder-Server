@@ -129,14 +129,13 @@ jobs:
       ecr_repo: ${{ vars.AWS_ECR_REPOSITORY }}
       dockerhub_repo_base: ${{ vars.DOCKERHUB_REPO }} # 기본 이름 전달
       ghcr_repo_name: ${{ github.event.repository.name }} # 기본값 사용 예시
-    # outputs 정의: 다른 job에서 사용할 이미지 이름/태그 출력 (reusable-docker-build.yml 내부에 정의되어 있어야 함)
-    # 예시:
+    # outputs 정의 불필요 (needs 문맥 통해 접근)
     # outputs:
       # image_digest: ${{ jobs.build_image_job.outputs.image_digest }}
-      # image_tag_sha: ${{ jobs.build_image_job.outputs.tag_sha }}
+      # image_tag_sha: ${{ jobs.build_image_job.outputs.image_tag_sha }}
       # image_name_ecr: ${{ jobs.build_image_job.outputs.image_name_ecr }}
-      # dh_repo_name_base_output: ${{ jobs.build_image_job.outputs.dh_repo_name_base_output }} 필요 시 DH 기본 이름 출력
-      # ghcr_image_uri_sha: ${{ jobs.build_image_job.outputs.ghcr_uri_sha_output }}
+      # dh_repo_name_base_output: ${{ jobs.build_image_job.outputs.dh_repo_name_base_output }}
+      # ghcr_image_uri_sha: ${{ jobs.build_image_job.outputs.ghcr_image_uri_sha }}
 
   # --- 5. Docker Hub 푸시 ---
   call_push_dh:
@@ -148,12 +147,12 @@ jobs:
     with:
       # Docker Hub 기본 리포 이름 전달
       dockerhub_repo_name: ${{ vars.DOCKERHUB_REPO }} # Variable에서 기본 이름 가져오기
-      image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
+      image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }} # 이전 이름으로 변경
       image_tag_latest: 'latest'
       # Pull 대상 GHCR 이미지 URI 전달
-      ghcr_image_uri_sha: ${{ needs.call_docker_build.outputs.ghcr_image_uri_sha }}
+      ghcr_image_uri_sha: ${{ needs.call_docker_build.outputs.ghcr_image_uri_sha }} # 이전 이름으로 변경
       # 빌드된 이미지 다이제스트 전달
-      image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }}
+      image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }} # 이전 이름으로 변경
     secrets:
       dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
       dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -170,13 +169,13 @@ jobs:
       id-token: write
       packages: read # GHCR Pull 위해 필요할 수 있음
     with:
-      image_name_ecr: ${{ needs.call_docker_build.outputs.image_name_ecr }}
-      image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
+      image_name_ecr: ${{ needs.call_docker_build.outputs.image_name_ecr }} # 이전 이름으로 변경
+      image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }} # 이전 이름으로 변경
       image_tag_latest: 'latest'
       aws_region: ${{ vars.AWS_REGION }}
-      image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }}
+      image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }} # 이전 이름으로 변경
       # Pull 대상 GHCR 이미지 URI 전달
-      ghcr_image_uri_sha: ${{ needs.call_docker_build.outputs.ghcr_image_uri_sha }}
+      ghcr_image_uri_sha: ${{ needs.call_docker_build.outputs.ghcr_image_uri_sha }} # 이전 이름으로 변경
     secrets:
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
     # outputs: # 푸시 발생 여부 필요 시
@@ -198,8 +197,8 @@ jobs:
       contents: read
     with:
       # ECR 이미지 정보 (SHA 태그 사용)
-      image_name_ecr: ${{ needs.call_docker_build.outputs.image_name_ecr }}
-      image_tag: ${{ needs.call_docker_build.outputs.image_tag_sha }}
+      image_name_ecr: ${{ needs.call_docker_build.outputs.image_name_ecr }} # 이전 이름으로 변경
+      image_tag: ${{ needs.call_docker_build.outputs.image_tag_sha }} # 이전 이름으로 변경
       # AWS 및 ECS 정보 (Variables 사용)
       aws_region: ${{ vars.AWS_REGION }}
       ecs_cluster_name: ${{ vars.ECS_CLUSTER_NAME }}
@@ -216,6 +215,8 @@ jobs:
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
       # Task 실행 역할 ARN (템플릿 내 $EXECUTION_ROLE_ARN 변수용)
       task_execution_role_arn: ${{ secrets.TASK_EXECUTION_ROLE_ARN }}
+      # GOOGLE_MAPS_API_KEY 전달 추가 (유지)
+      GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
 
   # --- 8. 연결 확인 ---
   # 수정: reusable-connection-check.yml의 inputs에 맞게 with 블록 사용

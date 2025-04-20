@@ -29,20 +29,20 @@ on:
 
     outputs:
       image_digest:
-        description: '빌드/푸시된 이미지의 매니페스트 다이제스트 (sha256:...)' # 설명 수정
-        value: ${{ jobs.build_image_job.outputs.digest }} # build_and_push_ghcr 스텝의 출력 사용
+        description: '빌드/푸시된 이미지의 매니페스트 다이제스트 (sha256:...)'
+        value: ${{ jobs.build_image_job.outputs.image_digest }}
       image_tag_sha:
         description: 'Git SHA 기반 태그 (예: sha-xxxx)'
-        value: ${{ jobs.build_image_job.outputs.tag_sha }}
+        value: ${{ jobs.build_image_job.outputs.image_tag_sha }}
       image_name_ecr:
         description: 'ECR용 전체 이미지 이름 (태그 제외)'
-        value: ${{ jobs.build_image_job.outputs.ecr_image_name_no_tag }}
+        value: ${{ jobs.build_image_job.outputs.image_name_ecr }}
       dh_repo_name_base_output:
         description: 'Base Docker Hub repository name output'
-        value: ${{ jobs.build_image_job.outputs.dh_repo_name_base_step_output }}
+        value: ${{ jobs.build_image_job.outputs.dh_repo_name_base_output }}
       ghcr_image_uri_sha:
          description: 'GHCR에 푸시된 이미지의 전체 URI (SHA 태그 포함)'
-         value: ${{ jobs.build_image_job.outputs.ghcr_uri_sha_output }}
+         value: ${{ jobs.build_image_job.outputs.ghcr_image_uri_sha }}
 
 jobs:
   build_image_job:
@@ -52,11 +52,11 @@ jobs:
       packages: write # GHCR 푸시/캐시 권한
       contents: read
     outputs:
-      ecr_image_name_no_tag: ${{ steps.set-names.outputs.ecr_name }}
-      dh_repo_name_base_step_output: ${{ steps.set-names.outputs.dh_repo_base }}
-      tag_sha: ${{ steps.tag-image.outputs.tag }}
-      digest: ${{ steps.build_and_push_ghcr.outputs.digest }} # build_and_push_ghcr 스텝의 출력 사용
-      ghcr_uri_sha_output: ${{ steps.set-names.outputs.ghcr_image_sha }}
+      image_name_ecr: ${{ steps.set-names.outputs.ecr_name }}
+      dh_repo_name_base_output: ${{ steps.set-names.outputs.dh_repo_base }}
+      image_tag_sha: ${{ steps.tag-image.outputs.tag }}
+      image_digest: ${{ steps.build_and_push_ghcr.outputs.digest }}
+      ghcr_image_uri_sha: ${{ steps.set-names.outputs.ghcr_image_sha }}
 
     steps:
       - name: Check out source code
