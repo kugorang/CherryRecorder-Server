@@ -9,8 +9,10 @@
  * @brief CherryRecorder 서버의 TCP 에코 서버 기능을 정의한 헤더 파일.
  *
  * 이 헤더는 Boost.Asio를 사용한 TCP Echo 서버 클래스(`EchoServer`)를 정의한다.
+ * 전체 프로젝트는 TCP 에코 서버, HTTP 서버(Google Places API 연동), 
+ * 그리고 웹소켓 기반 채팅 서버로 구성되며, 이 헤더 파일은 TCP 에코 서버 부분을 담당한다.
  * 클라이언트 연결을 수락하고, 각 연결에 대해 데이터를 에코하는 세션(내부 `Session` 클래스, `CherryRecorder-Server.cpp`에 정의됨)을 생성한다.
- * @see EchoServer, Session
+ * @see EchoServer, Session, HttpServer, ChatServer
  */
 
  /**
@@ -21,6 +23,7 @@
   * 받은 데이터를 그대로 다시 돌려주는 Echo 기능을 제공한다.
   * SO_REUSEADDR 옵션을 사용하여 서버 재시작 시 'Address already in use' 오류를 방지한다.
   * 각 클라이언트 연결은 별도의 `Session` 객체(`CherryRecorder-Server.cpp`에 정의됨)에 의해 비동기적으로 처리된다.
+  * 서버 애플리케이션 내 다른 서버 컴포넌트(HttpServer, ChatServer)와 독립적으로 실행된다.
   */
 class EchoServer {
 public:
@@ -51,13 +54,21 @@ public:
      */
     void start();
 
+    /**
+     * @brief 서버를 중지한다.
+     * @details Acceptor를 닫아 더 이상 새 연결을 받지 않도록 한다.
+     *          진행 중인 세션은 각자 완료되거나 종료될 때까지 유지될 수 있다.
+     *          (더 강력한 종료를 원하면 모든 Session 객체에게 종료 신호를 보내야 함)
+     */
+    void stop();
+
 private:
     /**
      * @brief 비동기적으로 클라이언트 연결을 대기하고 수락한다.
      *
      * 연결이 성공적으로 수락되면, 해당 연결을 위한 `Session` 객체를 생성하고 `start()`를 호출한다.
-     * 그리고 다음 연결을 받기 위해 다시 `async_accept`를 호출한다.
-     * 오류 발생 시에도 다음 연결 수락을 계속 시도한다.
+     * 그리고 다음 연결을 받기 위해 다시 `async_accept`를 호출하여 accept 루프를 유지한다.
+     * 오류 발생 시에도 다음 연결 수락을 계속 시도한다 (오류 로깅 포함).
      */
     void doAccept();
 
