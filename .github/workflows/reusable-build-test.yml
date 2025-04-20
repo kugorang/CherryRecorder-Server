@@ -71,6 +71,8 @@ jobs:
 
       # 7. CTest 실행
       - name: Run tests via CTest (Linux)
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
         run: |
           cd build
           ctest --output-on-failure
