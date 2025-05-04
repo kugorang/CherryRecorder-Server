@@ -112,48 +112,6 @@ int get_int_env_var(const std::string& var_name, int default_value) {
     }
 }
 
-// --- 시그널 처리 관련 전역 변수 및 함수 ---
-std::atomic<bool> shutdown_requested(false); ///< @brief 서버 종료 요청 플래그 (원자적 접근 보장).
-// 서버 객체 포인터 (시그널 핸들러에서 접근)
-// TODO: 전역 변수 대신 더 나은 의존성 주입 또는 관리 방식 고려
-std::unique_ptr<HttpServer> g_http_server_ptr = nullptr; ///< @brief HTTP 서버 객체 포인터 (전역).
-std::unique_ptr<EchoServer> g_echo_server_ptr = nullptr; ///< @brief Echo 서버 객체 포인터 (전역).
-std::unique_ptr<ChatServer> g_chat_server_ptr = nullptr; ///< @brief Chat 서버 객체 포인터 (전역).
-
-/**
- * @brief SIGINT, SIGTERM 시그널을 처리하는 핸들러 함수.
- * @param signum 수신된 시그널 번호.
- *
- * `shutdown_requested` 플래그를 true로 설정하고, 각 서버의 종료 메서드(`stop()`)를 호출한다.
- * @note 시그널 핸들러 내에서는 안전하지 않은 함수(printf, malloc 등) 호출을 최소화해야 함.
- */
-void signal_handler(int signum) {
-    static std::atomic<bool> handling_signal(false);
-    if (handling_signal.exchange(true)) {
-        return;
-    }
-
-    fprintf(stdout, "\nShutdown signal (%d) received. Initiating graceful shutdown...\n", signum);
-    shutdown_requested.store(true); // 종료 플래그 설정
-
-    // 각 서버의 stop() 메서드 호출 (null 체크 포함)
-    if (g_http_server_ptr) {
-        fprintf(stdout, "Requesting HTTP server stop...\n");
-        g_http_server_ptr->stop(); // 자체 io_context/스레드 관리 가정
-    }
-    if (g_echo_server_ptr) {
-        fprintf(stdout, "Requesting Echo server stop...\n");
-        g_echo_server_ptr->stop(); // acceptor만 닫음 (io_context는 공유 가정)
-    }
-    if (g_chat_server_ptr) {
-        fprintf(stdout, "Requesting Chat server stop...\n");
-        g_chat_server_ptr->stop(); // 자체 io_context/스레드 관리 가정
-    }
-
-    fprintf(stdout, "Signal handler finished processing. Main thread should exit soon.\n");
-    // handling_signal.store(false); // 일반적으로 필요 없음
-}
-
 /**
  * @brief 애플리케이션 메인 함수.
  * @param argc 커맨드 라인 인자 개수.
@@ -191,50 +149,79 @@ int main(int argc, char* argv[]) {
 
     fprintf(stdout, "Running in RELEASE mode\n");
 
-    // --- 시그널 핸들러 등록 ---
-    // SIGINT (Ctrl+C) 와 SIGTERM (kill 등) 처리
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
-    fprintf(stdout, "Signal handlers for SIGINT and SIGTERM registered.\n");
+    // --- io_context 생성 --- 
+    // 모든 서버가 io_context를 공유하도록 변경 (더 효율적일 수 있음)
+    const int num_total_threads = 4; // 예시: 전체 서버용 스레드 수
+    net::io_context ioc{num_total_threads};
+
+    // --- Boost.Asio signal_set 사용 --- 
+    net::signal_set signals(ioc, SIGINT, SIGTERM);
+    // async_wait 호출을 서버 생성 *후* 로 이동
+    // signals.async_wait(...);
 
     try {
         // --- 설정 값 읽기 (환경 변수 사용) ---
         unsigned short http_port = get_required_port_env_var("HTTP_PORT", 8080);
         std::string http_bind_ip = get_env_var("HTTP_BIND_IP", "0.0.0.0");
-        int http_threads = get_int_env_var("HTTP_THREADS", 1); // HTTP 서버 자체 스레드는 1개로 충분할 수 있음
+        int http_threads = get_int_env_var("HTTP_THREADS", 1); 
         unsigned short chat_port = get_required_port_env_var("CHAT_SERVER_PORT", 33334);
-        int chat_threads = get_int_env_var("CHAT_THREADS", 1); // Chat 서버 자체 스레드 (io_context 공유 시 불필요)
+        // int chat_threads = get_int_env_var("CHAT_THREADS", 1); // Chat 서버는 이제 공유 ioc 사용
         unsigned short echo_port = get_required_port_env_var("ECHO_SERVER_PORT", 33333);
-        // int echo_threads = get_int_env_var("ECHO_THREADS", 1); // Echo 서버는 보통 스레드 설정 불필요
 
-        // --- io_context 생성 --- 
-        // 모든 서버가 io_context를 공유하도록 변경 (더 효율적일 수 있음)
-        const int num_total_threads = 4; // 예시: 전체 서버용 스레드 수
-        net::io_context ioc{num_total_threads};
-        std::vector<std::thread> io_threads;
-        io_threads.reserve(num_total_threads);
+        // --- 서버 객체 생성 (로컬 스마트 포인터 사용) ---
+        auto http_server = std::make_unique<HttpServer>(http_bind_ip, http_port, http_threads); 
+        auto echo_server = std::make_unique<EchoServer>(ioc, echo_port); 
+        auto chat_server = std::make_shared<ChatServer>(ioc, chat_port); 
+        
+        // --- signal_set 핸들러 설정 (서버 객체 생성 후) ---
+        signals.async_wait(
+            [&ioc, &http_server, &echo_server, &chat_server](const beast::error_code& ec, int signal_number) {
+                // 시그널 핸들러 (io_context 스레드에서 실행됨)
+                if (ec) { 
+                    fprintf(stderr, "Signal wait error: %s\n", ec.message().c_str());
+                    return; 
+                }
+                fprintf(stdout, "\nShutdown signal (%d) received. Initiating graceful shutdown...\n", signal_number);
 
-        // --- 서버 객체 생성 (공유 io_context 사용) ---
-        g_http_server_ptr = std::make_unique<HttpServer>(http_bind_ip, http_port, http_threads); // HttpServer는 자체 스레드 관리
-        g_echo_server_ptr = std::make_unique<EchoServer>(ioc, echo_port); // 공유 io_context 전달
-        g_chat_server_ptr = std::make_unique<ChatServer>(ioc, chat_port); // 수정: io_context와 포트만 전달
+                // 각 서버의 stop() 메서드 호출 (람다 캡처 사용)
+                if (http_server) {
+                    fprintf(stdout, "Requesting HTTP server stop...\n");
+                    http_server->stop();
+                }
+                if (echo_server) {
+                    fprintf(stdout, "Requesting Echo server stop...\n");
+                    echo_server->stop();
+                }
+                if (chat_server) {
+                    fprintf(stdout, "Requesting Chat server stop...\n");
+                    chat_server->stop();
+                }
+
+                // 공유 io_context 중지 요청
+                fprintf(stdout, "Requesting shared io_context stop...\n");
+                ioc.stop(); 
+            });
+        // --- 시그널 설정 끝 ---
         
         // --- 서버 시작 ---
-        g_http_server_ptr->run(); // 자체 스레드 시작
-        g_echo_server_ptr->start(); // 공유 io_context에 accept 작업 게시
-        g_chat_server_ptr->run(); // 자체 스레드 시작
+        http_server->run(); 
+        echo_server->start(); 
+        chat_server->run(); 
 
         fprintf(stdout, "HTTP server starting on %s:%hu (%d threads)\n", http_bind_ip.c_str(), http_port, http_threads);
         fprintf(stdout, "Echo server starting on port %hu (using shared io_context)\n", echo_port);
-        fprintf(stdout, "Chat server starting on port %hu (%d threads)\n", chat_port, chat_threads);
+        // fprintf(stdout, "Chat server starting on port %hu (%d threads)\n", chat_port, chat_threads); // 스레드 수 정보 제거
+        fprintf(stdout, "Chat server starting on port %hu (using shared io_context)\n", chat_port);
 
         // --- 공유 io_context 실행 스레드 시작 ---
-        fprintf(stdout, "Starting %d shared IO threads for Echo Server...\n", num_total_threads);
+        std::vector<std::thread> io_threads;
+        io_threads.reserve(num_total_threads);
+        fprintf(stdout, "Starting %d shared IO threads for Echo/Chat Servers...\n", num_total_threads);
         for (int i = 0; i < num_total_threads; ++i) {
-            io_threads.emplace_back([&ioc, i]() { // ioc 참조 캡처
+            io_threads.emplace_back([&ioc, i]() { 
                 fprintf(stdout, "[Shared IO Thread %d] Starting io_context::run()...\n", i);
                 try {
-                    ioc.run(); // 이벤트 루프 실행
+                    ioc.run(); 
                     fprintf(stdout, "[Shared IO Thread %d] io_context::run() finished.\n", i);
                 } catch (const std::exception& e) {
                     fprintf(stderr, "[Shared IO Thread %d] Exception: %s\n", i, e.what());
@@ -252,47 +239,45 @@ int main(int argc, char* argv[]) {
                 t.join();
             }
         }
-        // HttpServer, ChatServer의 자체 스레드 join 로직은 각 stop() 메서드 내부에 있어야 함
+        // HttpServer의 자체 스레드 join은 해당 객체의 소멸자 또는 stop()에서 처리되어야 함
+        // (HttpServer 구현 확인 필요)
+        if (http_server) {
+             // HttpServer의 stop()이 스레드 join을 보장하는지 확인 필요
+             // 그렇지 않다면 여기서 명시적 join 필요할 수 있음
+             // http_server->join_threads(); // 예시
+        }
 
         fprintf(stdout, "Main thread exiting after IO threads finished.\n");
 
     }
-    catch (const std::system_error& e) { ///< Asio 관련 시스템 오류 등
+    catch (const std::system_error& e) { 
         fprintf(stderr, "[Error] System error during server setup or execution: %s (code: %d)\n", e.what(), e.code().value());
-        // 시그널 핸들러와 유사하게 종료 처리 시도
-        if (!shutdown_requested.load()) { ///< 시그널 핸들러가 이미 호출되지 않았다면
-            signal_handler(0); ///< 가상 시그널 번호로 핸들러 호출하여 정리 시도
-        }
+        // 오류 발생 시 io_context 중지 시도 (이미 실행 중이라면)
+        // if (!ioc.stopped()) ioc.stop(); // ioc 접근 문제
         return 1;
     }
-    catch (const std::runtime_error& e) { ///< 환경 변수 파싱 오류 등
+    catch (const std::runtime_error& e) { 
         fprintf(stderr, "[Error] Runtime error during server setup: %s\n", e.what());
-        // 위와 유사하게 종료 처리 시도
-        if (!shutdown_requested.load()) {
-            signal_handler(0);
-        }
+        // if (!ioc.stopped()) ioc.stop(); // ioc 접근 문제
         return 1;
     }
-    catch (const std::exception& e) { ///< 그 외 표준 라이브러리 예외
+    catch (const std::exception& e) { 
         fprintf(stderr, "[Error] Unhandled standard exception in main: %s\n", e.what());
-        if (!shutdown_requested.load()) {
-            signal_handler(0);
-        }
+        // if (!ioc.stopped()) ioc.stop(); // ioc 접근 문제
         return 1;
     }
-    catch (...) { ///< 알 수 없는 예외
+    catch (...) { 
         fprintf(stderr, "[Error] Unknown exception caught in main!\n");
-        if (!shutdown_requested.load()) {
-            signal_handler(0);
-        }
+        // if (!ioc.stopped()) ioc.stop(); // ioc 접근 문제
         return 1;
     }
 
-    // 전역 포인터 정리 (선택적, 프로그램 종료 시 자동 해제되나 명시적 정리)
-    g_http_server_ptr.reset();
-    g_echo_server_ptr.reset();
-    g_chat_server_ptr.reset();
+    // 스마트 포인터가 범위를 벗어나면 자동으로 서버 객체 소멸 (reset 불필요)
+    // g_http_server_ptr.reset(); 
+    // g_echo_server_ptr.reset();
+    // g_chat_server_ptr.reset();
+    // g_shared_ioc_ptr = nullptr;
 
     fprintf(stdout, "Server application finished gracefully.\n");
-    return 0; ///< 정상 종료
+    return 0; 
 }

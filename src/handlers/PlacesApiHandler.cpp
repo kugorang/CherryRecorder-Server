@@ -38,8 +38,20 @@ http::response<http::string_body> PlacesApiHandler::handleNearbySearch(
         // 클라이언트 요청에서 필요한 파라미터 추출
         double latitude = req_json.at("latitude").as_double();
         double longitude = req_json.at("longitude").as_double();
-        double radius = req_json.as_object().contains("radius") ? 
-                       req_json.at("radius").as_double() : 1500.0;
+        
+        // radius 값을 double 또는 int64로 유연하게 처리
+        double radius = 1500.0; // 기본값 설정
+        if (req_json.as_object().contains("radius")) {
+            const auto& radius_val = req_json.at("radius");
+            if (radius_val.is_double()) {
+                radius = radius_val.as_double();
+            } else if (radius_val.is_int64()) {
+                radius = static_cast<double>(radius_val.as_int64());
+                std::cout << "Warning: Received radius as integer, converting to double: " << radius << std::endl;
+            } else {
+                std::cerr << "Warning: Invalid type for radius, using default." << std::endl;
+            }
+        }
         
         std::cout << "위치 정보 추출: lat=" << latitude << ", lng=" << longitude 
                   << ", 반경=" << radius << "m" << std::endl;
@@ -75,6 +87,10 @@ http::response<http::string_body> PlacesApiHandler::handleNearbySearch(
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
         res.set(http::field::content_type, "application/json");
+        // CORS 헤더 추가
+        res.set(http::field::access_control_allow_origin, "*");
+        res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+        res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
         res.keep_alive(req.keep_alive());
         res.body() = json::serialize(response_data);
         res.prepare_payload();
@@ -102,8 +118,20 @@ http::response<http::string_body> PlacesApiHandler::handleTextSearch(
                          req_json.at("latitude").as_double() : 37.5665;
         double longitude = req_json.as_object().contains("longitude") ? 
                           req_json.at("longitude").as_double() : 126.9780;
-        double radius = req_json.as_object().contains("radius") ? 
-                       req_json.at("radius").as_double() : 50000.0;
+                          
+        // radius 값을 double 또는 int64로 유연하게 처리
+        double radius = 50000.0; // 기본값 설정
+        if (req_json.as_object().contains("radius")) {
+            const auto& radius_val = req_json.at("radius");
+            if (radius_val.is_double()) {
+                radius = radius_val.as_double();
+            } else if (radius_val.is_int64()) {
+                radius = static_cast<double>(radius_val.as_int64());
+                std::cout << "Warning: Received radius as integer, converting to double: " << radius << std::endl;
+            } else {
+                std::cerr << "Warning: Invalid type for radius, using default." << std::endl;
+            }
+        }
         
         // Google Places API 요청 데이터 구성
         json::object request_data;
@@ -137,6 +165,10 @@ http::response<http::string_body> PlacesApiHandler::handleTextSearch(
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
         res.set(http::field::content_type, "application/json");
+        // CORS 헤더 추가
+        res.set(http::field::access_control_allow_origin, "*");
+        res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+        res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
         res.keep_alive(req.keep_alive());
         res.body() = json::serialize(response_data);
         res.prepare_payload();
@@ -173,6 +205,10 @@ http::response<http::string_body> PlacesApiHandler::handlePlaceDetails(
             http::response<http::string_body> error_res{static_cast<http::status>(status_code), 11};
             error_res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
             error_res.set(http::field::content_type, "application/json"); // Google 오류는 JSON일 수 있음
+            // CORS 헤더 추가
+            error_res.set(http::field::access_control_allow_origin, "*");
+            error_res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+            error_res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
             error_res.body() = error_body;
             error_res.prepare_payload();
             return error_res;
@@ -185,6 +221,10 @@ http::response<http::string_body> PlacesApiHandler::handlePlaceDetails(
         http::response<http::string_body> res{http::status::ok, 11}; 
         res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
         res.set(http::field::content_type, "application/json");
+        // CORS 헤더 추가
+        res.set(http::field::access_control_allow_origin, "*");
+        res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+        res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
         res.body() = json::serialize(response_data); // 여기서 response_data는 파싱된 Google 응답
         res.prepare_payload();
         return res;
@@ -364,6 +404,10 @@ http::response<http::string_body> PlacesApiHandler::createErrorResponse(
     http::response<http::string_body> res{status_code, 11}; // HTTP/1.1 가정
     res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
     res.set(http::field::content_type, "application/json");
+    // CORS 헤더 추가
+    res.set(http::field::access_control_allow_origin, "*");
+    res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+    res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
     
     json::object error_obj;
     error_obj["error"] = error;

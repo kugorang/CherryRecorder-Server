@@ -84,6 +84,49 @@ public:
 
 private:
     /**
+     * @brief 모든 응답에 CORS 헤더를 추가하는 헬퍼 메서드.
+     * @param res 수정할 HTTP 응답 객체
+     * @return 헤더가 추가된 HTTP 응답 객체
+     */
+    template<class Body, class Fields>
+    http::response<Body, Fields>& add_cors_headers(http::response<Body, Fields>& res) {
+        // CORS 헤더 추가
+        res.set(http::field::access_control_allow_origin, "*");  // 모든 도메인 허용, 필요시 특정 도메인으로 변경
+        res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+        res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
+        res.set(http::field::access_control_max_age, "86400");  // 캐시 유효시간 1일 (선택사항)
+        
+        return res;
+    }
+
+    /**
+     * @brief OPTIONS 메서드(프리플라이트 요청) 처리
+     */
+    void handle_options_request() {
+        fprintf(stdout, "[HttpSession %p] Handling OPTIONS request (CORS preflight).\n", (void*)this);
+        
+        // 200 OK 응답 생성
+        http::response<http::empty_body> res{http::status::ok, req_.version()};
+        
+        // 필수 CORS 헤더 추가
+        add_cors_headers(res);
+        
+        // 응답 전송
+        auto sp = std::make_shared<http::response<http::empty_body>>(std::move(res));
+        
+        // 쓰기 타임아웃 설정
+        stream_.expires_after(std::chrono::seconds(30));
+        
+        fprintf(stdout, "[HttpSession %p] Writing OPTIONS response...\n", (void*)this);
+        
+        // 비동기적으로 응답 쓰기 시작
+        http::async_write(stream_, *sp,
+            [self = shared_from_this(), sp](beast::error_code ec, std::size_t bytes_transferred) {
+                self->on_write(sp->need_eof(), ec, bytes_transferred);
+            });
+    }
+
+    /**
     * @brief `run()`에서 `net::dispatch`된 후 실제 실행되는 함수.
     *
     * 첫 번째 `do_read()`를 호출하여 요청 읽기 프로세스를 시작한다.
@@ -141,9 +184,16 @@ private:
         fprintf(stdout, "[HttpSession %p] Read successful. Request: %s %s\n", (void*)this,
             std::string(http::to_string(req_.method())).c_str(), std::string(req_.target()).c_str());
 
+        // ----- CORS 프리플라이트 요청 처리 추가 -----
+        if (req_.method() == http::verb::options) {
+            return handle_options_request();  // OPTIONS 요청 처리
+        }
         // ----- 요청 라우팅 -----
         if (req_.method() == http::verb::get && req_.target() == "/health") {
             handle_health_check_request(); // Health Check 요청 처리
+        }
+        else if (req_.method() == http::verb::get && req_.target() == "/maps/key") {
+            handle_maps_key_request(); // Google Maps API 키 요청 처리
         }
         else if (req_.method() == http::verb::post && req_.target() == "/places/nearby") {
             fprintf(stdout, "[HttpSession %p] Places API 요청 감지: /places/nearby\n", (void*)this);
@@ -227,6 +277,40 @@ private:
     }
 
     /**
+     * @brief Google Maps API 키를 제공하는 엔드포인트
+     * 
+     * 클라이언트의 웹 플랫폼에서 Google Maps를 사용할 때 필요한 API 키를 제공한다.
+     * 이 방식을 통해 API 키를 소스 코드에 노출하지 않고도 안전하게 관리할 수 있다.
+     */
+    void handle_maps_key_request() {
+        fprintf(stdout, "[HttpSession %p] Handling /maps/key request.\n", (void*)this);
+        
+        // 환경변수에서 API 키 가져오기
+        const char* api_key = std::getenv("GOOGLE_MAPS_API_KEY");
+        if (api_key == nullptr || api_key[0] == '\0') {
+            // API 키가 없는 경우 오류 처리
+            handle_bad_request("Google Maps API key is not configured on the server");
+            return;
+        }
+        
+        // 응답 객체 생성
+        http::response<http::string_body> res{ http::status::ok, req_.version() };
+        res.set(http::field::server, "WebServer");
+        res.set(http::field::content_type, "text/plain");
+        res.keep_alive(req_.keep_alive());
+        
+        // API 키를 응답 본문으로 설정
+        res.body() = api_key;
+        
+        // CORS 헤더 추가
+        add_cors_headers(res);
+        
+        // 응답 전송
+        res.prepare_payload();
+        send_response(std::move(res));
+    }
+
+    /**
      * @brief `/health` 경로에 대한 GET 요청을 처리한다.
      *
      * 상태 코드 200 OK와 "OK" 문자열 본문을 포함하는 HTTP 응답을 생성하고 `send_response`를 통해 전송한다.
@@ -241,6 +325,8 @@ private:
         res.keep_alive(req_.keep_alive());                       // 요청의 Keep-Alive 설정 따름
         // 응답 본문 설정
         res.body() = "OK";
+        // CORS 헤더 추가
+        add_cors_headers(res);
         // 응답 본문 길이에 맞춰 Content-Length 헤더 등 자동 계산 및 설정
         res.prepare_payload();
         // 생성된 응답 전송
@@ -257,6 +343,8 @@ private:
         res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
         res.set(http::field::content_type, "text/plain");
         res.body() = std::string(why);
+        // CORS 헤더 추가
+        add_cors_headers(res);
         res.prepare_payload();
         send_response(std::move(res));
     }
@@ -276,6 +364,8 @@ private:
         res.keep_alive(req_.keep_alive());
         // 응답 본문 설정
         res.body() = "The resource '" + std::string(req_.target()) + "' was not found.";
+        // CORS 헤더 추가
+        add_cors_headers(res);
         // 응답 본문 길이에 맞춰 Content-Length 헤더 등 자동 계산 및 설정
         res.prepare_payload();
         // 생성된 응답 전송
