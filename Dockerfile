@@ -106,6 +106,9 @@ WORKDIR /home/appuser/app
 # 최종 실행 파일 복사
 COPY --from=builder --chown=appuser:appuser /app/build/CherryRecorder-Server-App ./CherryRecorder-Server-App
 
+# 애플리케이션이 사용할 디렉토리 생성 및 권한 설정
+RUN mkdir -p history && chown appuser:appuser history
+
 # 사용자 전환
 USER appuser
 
