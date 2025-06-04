@@ -6,7 +6,8 @@ import shutil
 import sys
 
 # --- Configuration ---
-APP_IMAGE_TAG = "cherryrecorder-server:latest"
+APP_IMAGE_TAG_LOCAL = "cherryrecorder-server:latest"
+APP_IMAGE_TAG_K8S = "cherryrecorder-server:k8s-latest"
 TEST_IMAGE_TAG = "cherryrecorder-server-test:latest"
 APP_CONTAINER_NAME = "cherryrecorder-server-container"
 APP_DOCKERFILE = "Dockerfile"
@@ -128,9 +129,18 @@ def main():
     parser = argparse.ArgumentParser(description="Build and run/test CherryRecorder Server using Docker.")
     parser.add_argument(
         "--target",
-        choices=["app", "test"],
+        choices=["app", "test", "k8s"],
         default="app",
-        help="Target to build and run: 'app' (default) or 'test'."
+        help="Target to build: 'app' (default), 'test', or 'k8s' for Kubernetes deployment."
+    )
+    parser.add_argument(
+        "--push",
+        action="store_true",
+        help="Push the built image to Docker Hub (requires docker login)."
+    )
+    parser.add_argument(
+        "--dockerhub-username",
+        help="Docker Hub username for tagging and pushing images."
     )
     args = parser.parse_args()
 
@@ -144,9 +154,17 @@ def main():
             backup_made = prepare_dockerignore_for_test()
             build_args = ["docker", "build", "--pull", "-t", image_tag, "-f", dockerfile, "."]
             run_args = ["docker", "run", "--rm", "-e", "GOOGLE_MAPS_API_KEY=dummy_key", image_tag]
+        elif args.target == "k8s":
+            print("--- Building for K8S deployment ---")
+            image_tag = APP_IMAGE_TAG_K8S
+            if args.dockerhub_username:
+                image_tag = f"{args.dockerhub_username}/{image_tag}"
+            dockerfile = APP_DOCKERFILE
+            build_args = ["docker", "build", "--pull", "-t", image_tag, "-f", dockerfile, "."]
+            run_args = None  # K8s mode doesn't run containers locally
         else: # app mode
             print("--- Running in APPLICATION mode ---")
-            image_tag = APP_IMAGE_TAG
+            image_tag = APP_IMAGE_TAG_LOCAL
             dockerfile = APP_DOCKERFILE
             container_name = APP_CONTAINER_NAME
 
@@ -181,18 +199,47 @@ def main():
         if not run_command(build_args):
             sys.exit(1) # Exit if build fails
 
+        # --- Push to Docker Hub (if requested) ---
+        if args.push and args.target in ["app", "k8s"]:
+            if not args.dockerhub_username and args.target == "k8s":
+                print("ERROR: --dockerhub-username is required for k8s target with --push", file=sys.stderr)
+                sys.exit(1)
+            
+            push_tag = image_tag
+            if args.target == "app" and args.dockerhub_username:
+                # Tag local image for push
+                push_tag = f"{args.dockerhub_username}/{APP_IMAGE_TAG_LOCAL}"
+                if not run_command(["docker", "tag", image_tag, push_tag]):
+                    print("ERROR: Docker tag failed!", file=sys.stderr)
+                    sys.exit(1)
+            
+            print(f"\nPushing image to Docker Hub...")
+            if not run_command(["docker", "push", push_tag]):
+                print("ERROR: Docker push failed!", file=sys.stderr)
+                sys.exit(1)
+            print(f"Successfully pushed: {push_tag}")
+
         # --- Run Docker Container ---
-        if not run_command(run_args):
-             print(f"ERROR: Docker run failed or tests failed for target '{args.target}'!", file=sys.stderr)
-             sys.exit(1) # Exit if run/tests fail
+        if run_args:
+            if not run_command(run_args):
+                 print(f"ERROR: Docker run failed or tests failed for target '{args.target}'!", file=sys.stderr)
+                 sys.exit(1) # Exit if run/tests fail
 
         # --- Post-run messages ---
         if args.target == "app":
             print(f"\nContainer '{APP_CONTAINER_NAME}' started successfully.")
+            print(f"  HTTP API:    http://localhost:{HOST_PORT_HTTP}")
+            print(f"  Chat Server: localhost:{HOST_PORT_CHAT}")
+            print(f"  Echo Server: localhost:{HOST_PORT_ECHO}")
             print(f"  To view logs: docker logs {APP_CONTAINER_NAME} -f")
             print(f"  To stop:      docker kill {APP_CONTAINER_NAME}")
-        else:
+        elif args.target == "test":
             print("\nTests completed successfully.")
+        elif args.target == "k8s":
+            print(f"\nK8s image built successfully: {image_tag}")
+            print("To deploy to Kubernetes:")
+            print(f"  1. Update your deployment YAML with image: {image_tag}")
+            print(f"  2. kubectl apply -f <your-deployment.yaml>")
 
         print("\nScript finished.")
 
@@ -205,4 +252,4 @@ def main():
              restore_dockerignore(backup_made)
 
 if __name__ == "__main__":
-    main() 
+    main()
