@@ -22,25 +22,30 @@ C++20으로 구현된 CherryRecorder의 고성능 백엔드 서버입니다. 위
 
 ## 📱 프로젝트 소개
 
-CherryRecorder Server는 사용자의 위치 기반 혜택 정보를 관리하고, 실시간 채팅 서비스를 제공하는 백엔드 시스템입니다.
+CherryRecorder Server는 사용자의 위치 기반 혜택 정보를 관리하고, 실시간 채팅 서비스를 제공하는 고성능 백엔드 시스템입니다. 최근 Proxygen 프레임워크로 마이그레이션하여 성능과 확장성이 크게 향상되었습니다.
 
 ### 주요 기능
 
-1. **🌐 HTTP API 서버 (포트 8080)**
+1. **🌐 HTTP/HTTPS API 서버 (포트 8080)**
+   - Proxygen 기반 고성능 HTTP 서버
    - 헬스체크 엔드포인트 (`/health`)
-   - Google Places API 프록시
-     - `/places/nearby` - 주변 장소 검색
+   - Google Places API 프록시 (개선됨)
+     - `/places/nearby` - 주변 장소 검색 (필터링 옵션 추가)
      - `/places/search` - 텍스트 기반 장소 검색
      - `/places/details` - 장소 상세 정보
+   - 향상된 오류 처리 및 응답 포맷
 
-2. **💬 WebSocket 채팅 서버 (포트 33334)**
+2. **💬 WebSocket 채팅 서버**
+   - Proxygen WebSocket 핸들러 기반
    - 실시간 메시지 전송
    - 닉네임 기반 사용자 관리
-   - 브로드캐스트 메시징
+   - 향상된 연결 관리 및 안정성
+   - SSL/TLS 지원
 
-3. **🔌 TCP Echo 서버 (포트 33333)**
-   - 네트워크 테스트 및 디버깅용
-   - 연결 상태 확인
+3. **🔒 보안 및 성능**
+   - SSL/TLS 암호화 지원
+   - 멀티스레드 처리로 향상된 동시성
+   - 비동기 I/O 기반 고성능 처리
 
 ## 🏗️ 아키텍처
 
@@ -50,9 +55,12 @@ CherryRecorder Server는 사용자의 위치 기반 혜택 정보를 관리하�
 - **빌드 시스템**: CMake 3.20+
 - **패키지 관리**: vcpkg
 - **주요 라이브러리**:
-  - Boost.Beast (HTTP/WebSocket)
+  - **Proxygen** (Facebook의 고성능 HTTP 프레임워크)
+  - **Folly** (Facebook의 C++ 라이브러리)
+  - Boost.Beast (레거시 지원)
   - Boost.Asio (비동기 I/O)
   - OpenSSL (TLS/SSL)
+  - nlohmann/json (JSON 처리)
   - Google Test (단위 테스트)
 - **문서화**: Doxygen
 - **컨테이너**: Docker
@@ -67,22 +75,39 @@ CherryRecorder-Server/
 │   ├── workflows/           # CI/CD 워크플로우
 │   └── task-definition.json.template
 ├── docs/
-│   └── Doxyfile            # Doxygen 설정
+│   ├── Doxyfile            # Doxygen 설정
+│   └── PROXYGEN_MIGRATION.md  # Proxygen 마이그레이션 가이드
 ├── include/                # 헤더 파일
-│   ├── CherryRecorder-Server.hpp
-│   ├── HttpServer.hpp
+│   ├── ProxygenHttpServer.hpp  # Proxygen HTTP 서버
+│   ├── HttpsServer.hpp         # HTTPS 서버
+│   ├── WebSocketListener.hpp   # WebSocket 리스너
+│   ├── WebSocketSession.hpp    # WebSocket 세션
+│   ├── WebSocketSSLSession.hpp # SSL WebSocket 세션
+│   ├── SessionInterface.hpp    # 세션 인터페이스
+│   ├── ChatServer.hpp          # 채팅 서버 (개선됨)
+│   ├── ChatRoom.hpp            # 채팅룸 관리 (개선됨)
+│   ├── ChatSession.hpp         # 채팅 세션 (개선됨)
 │   └── handlers/
 │       └── PlacesApiHandler.hpp
 ├── src/                    # 소스 파일
-│   ├── main.cpp
-│   ├── CherryRecorder-Server.cpp
-│   ├── HttpServer.cpp
+│   ├── main.cpp           # 진입점 (업데이트됨)
+│   ├── main_proxygen.cpp  # Proxygen 서버 진입점
+│   ├── ProxygenHttpServer.cpp
+│   ├── HttpsServer.cpp
+│   ├── WebSocketListener.cpp
+│   ├── WebSocketSession.cpp
+│   ├── WebSocketSSLSession.cpp
+│   ├── ChatServer.cpp
+│   ├── ChatRoom.cpp
+│   ├── ChatSession.cpp
 │   └── handlers/
-│       └── PlacesApiHandler.cpp
+│       └── PlacesApiHandler.cpp  # API 핸들러 (개선됨)
+├── ssl/                    # SSL 인증서 디렉토리
+├── history/                # 채팅 히스토리 저장
 ├── tests/                  # 테스트 코드
-├── CMakeLists.txt         # CMake 설정
-├── vcpkg.json             # 의존성 정의
-└── Dockerfile             # 컨테이너 빌드
+├── CMakeLists.txt         # CMake 설정 (업데이트됨)
+├── vcpkg.json             # 의존성 정의 (Proxygen 추가)
+└── Dockerfile             # 컨테이너 빌드 (최적화됨)
 ```
 
 ## 🚀 시작하기
@@ -140,11 +165,17 @@ git submodule update --init --recursive
 GOOGLE_MAPS_API_KEY=your_api_key_here
 
 # 서버 설정 (선택사항 - 기본값 있음)
-ECHO_SERVER_IP=0.0.0.0
-ECHO_SERVER_PORT=33333
-HEALTH_CHECK_IP=0.0.0.0
-HEALTH_CHECK_PORT=8080
-HTTP_THREADS=4
+HTTP_SERVER_IP=0.0.0.0
+HTTP_SERVER_PORT=8080
+HTTP_THREADS=8  # Proxygen 워커 스레드 수
+
+# SSL 설정 (HTTPS 사용 시)
+SSL_CERT_PATH=./ssl/cert.pem
+SSL_KEY_PATH=./ssl/key.pem
+
+# 채팅 서버 설정
+WEBSOCKET_PORT=33334
+CHAT_HISTORY_PATH=./history
 ```
 
 ### 3. IDE 설정
@@ -227,6 +258,25 @@ Parameters:
 - location: 위도,경도 (필수)
 - radius: 검색 반경(미터) (필수)
 - type: 장소 유형 (선택)
+
+Response (개선됨):
+{
+  "results": [
+    {
+      "id": "place_id",
+      "name": "장소명",
+      "location": {
+        "lat": 37.5665,
+        "lng": 126.9780
+      },
+      "types": ["restaurant", "food"],
+      "rating": 4.5,
+      "user_ratings_total": 100,
+      "vicinity": "주소"
+    }
+  ],
+  "status": "OK"
+}
 ```
 
 #### 텍스트 검색
