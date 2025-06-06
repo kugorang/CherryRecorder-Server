@@ -68,6 +68,10 @@ http::response<http::string_body> PlacesApiHandler::handleNearbySearch(
         circle["radius"] = radius;
         location_restriction["circle"] = circle;
         request_data["locationRestriction"] = location_restriction;
+
+        // 필요한 파라미터 추가 (fieldMask는 searchNearby에서 지원하지 않음)
+        request_data["includedPrimaryTypes"] = json::array{"restaurant", "cafe", "bakery", "bar"};
+        request_data["maxResultCount"] = 20;
         
         // Google Places API 호출 (POST 사용)
         json::value response_data = this->requestGooglePlacesApi(
@@ -146,6 +150,9 @@ http::response<http::string_body> PlacesApiHandler::handleTextSearch(
         circle["radius"] = radius;
         location_bias["circle"] = circle;
         request_data["locationBias"] = location_bias;
+
+        // 필요한 파라미터 추가 (fieldMask는 searchText에서 지원하지 않음)
+        request_data["maxResultCount"] = 20;
         
         // Google Places API 호출 (POST 사용)
         json::value response_data = this->requestGooglePlacesApi(
@@ -186,10 +193,9 @@ http::response<http::string_body> PlacesApiHandler::handlePlaceDetails(
     const std::string& place_id) {
     
     try {
-        // 요청 본문 파싱 로직 제거 (GET 요청이므로)
-        
-        // Google Places API 요청 URL 구성 (인자로 받은 place_id 사용)
-        std::string api_url = "https://places.googleapis.com/v1/places/" + place_id;
+        // fieldMask를 사용하여 필요한 필드(사진 포함)를 명시적으로 요청
+        std::string fields = "id,displayName,formattedAddress,location,rating,userRatingCount,reviews,photos";
+        std::string api_url = "https://places.googleapis.com/v1/places/" + place_id + "?fields=" + fields;
         
         // Google Places API 호출 (GET 사용)
         json::value response_data = this->requestGooglePlacesApi(
@@ -367,16 +373,48 @@ json::value PlacesApiHandler::requestGooglePlacesApi(
              
              for (const auto& place : places_array) {
                  json::object transformed_place;
-                 transformed_place["placeId"] = place.at("id").as_string();
-                 transformed_place["name"] = place.at("displayName").at("text").as_string();
                  
-                 if (place.as_object().contains("formattedAddress")) {
-                     transformed_place["vicinity"] = place.at("formattedAddress").as_string();
+                 // ID 처리 (필수 필드)
+                 if (place.as_object().contains("id")) {
+                     transformed_place["placeId"] = place.at("id").as_string();
+                 } else if (place.as_object().contains("name")) {
+                     // name 필드에서 ID 추출 (places/ChIJ... 형식)
+                     std::string name_str = place.at("name").as_string().c_str();
+                     auto pos = name_str.find("places/");
+                     if (pos != std::string::npos) {
+                         transformed_place["placeId"] = name_str.substr(pos + 7);
+                     } else {
+                         transformed_place["placeId"] = name_str;
+                     }
                  }
                  
+                 // 장소 이름 처리
+                 if (place.as_object().contains("displayName") && 
+                     place.at("displayName").as_object().contains("text")) {
+                     transformed_place["name"] = place.at("displayName").at("text").as_string();
+                 } else {
+                     transformed_place["name"] = "이름 없음";
+                 }
+                 
+                 // 주소 처리
+                 if (place.as_object().contains("formattedAddress")) {
+                     transformed_place["vicinity"] = place.at("formattedAddress").as_string();
+                 } else if (place.as_object().contains("vicinity")) {
+                     transformed_place["vicinity"] = place.at("vicinity").as_string();
+                 } else {
+                     transformed_place["vicinity"] = "주소 정보 없음";
+                 }
+                 
+                 // 위치 정보 처리
                  json::object location;
-                 location["latitude"] = place.at("location").at("latitude").as_double();
-                 location["longitude"] = place.at("location").at("longitude").as_double();
+                 if (place.as_object().contains("location")) {
+                     location["latitude"] = place.at("location").at("latitude").as_double();
+                     location["longitude"] = place.at("location").at("longitude").as_double();
+                 } else {
+                     // 기본 위치 (강남역)
+                     location["latitude"] = 37.4979;
+                     location["longitude"] = 127.0276;
+                 }
                  transformed_place["location"] = location;
                  
                  transformed_places.push_back(transformed_place);
