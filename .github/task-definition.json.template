@@ -7,35 +7,45 @@
     {
       "name": "$CONTAINER_NAME",
       "image": "placeholder",
-      "cpu": 341,
-      "memory": 315,
+      "cpu": 768,
+      "memory": 768,
       "essential": true,
       "portMappings": [
         {
-          "containerPort": "$HEALTH_CHECK_PORT_VALUE",
+          "containerPort": 8080,
           "hostPort": 0,
           "protocol": "tcp",
-          "name": "http-health"
+          "name": "http"
         },
         {
-          "containerPort": "$ECHO_SERVER_PORT_VALUE",
+          "containerPort": 58080,
           "hostPort": 0,
           "protocol": "tcp",
-          "name": "tcp-echo"
+          "name": "https"
+        },
+        {
+          "containerPort": 33334,
+          "hostPort": 0,
+          "protocol": "tcp",
+          "name": "websocket-chat"
         }
       ],
       "environment": [
         {
-          "name": "HEALTH_CHECK_PORT",
-          "value": "$HEALTH_CHECK_PORT_VALUE"
+          "name": "HTTP_PORT",
+          "value": "8080"
         },
         {
-          "name": "ECHO_SERVER_PORT",
-          "value": "$ECHO_SERVER_PORT_VALUE"
+          "name": "HTTPS_PORT",
+          "value": "58080"
         },
         {
           "name": "GOOGLE_MAPS_API_KEY",
           "value": "${GOOGLE_MAPS_API_KEY}"
+        },
+        {
+          "name": "LOG_LEVEL",
+          "value": "INFO"
         }
       ],
       "logConfiguration": {
@@ -49,7 +59,7 @@
       "healthCheck": {
         "command": [
           "CMD-SHELL",
-          "curl -f http://localhost:$HEALTH_CHECK_PORT_VALUE/health || exit 1"
+          "curl -f http://localhost:8080/health || exit 1"
         ],
         "interval": 30,
         "timeout": 5,

@@ -39,9 +39,9 @@ if %errorlevel% neq 0 (
 echo Visual Studio environment set up successfully.
 
 REM --- Environment Variables --- 
-set "ENV_FILE=%~dp0.env" REM Path to the environment file
+set "ENV_FILE=%~dp0.env.debug" REM Path to the environment file
 if not exist "%ENV_FILE%" (
-    echo ERROR: .env file not found! Please create it from .env.example
+    echo ERROR: .env.debug file not found! Please create it for local debugging.
     pause
     exit /b 1
 )
@@ -79,8 +79,13 @@ if "%SOURCE_DIR:~-1%"=="\" set "SOURCE_DIR=%SOURCE_DIR:~0,-1%"
 set "BUILD_DIR=%SOURCE_DIR%\out\build\x64-%BUILD_TYPE%" REM Build output directory
 set "VCPKG_TOOLCHAIN_FILE=%SOURCE_DIR%\vcpkg\scripts\buildsystems\vcpkg.cmake" REM vcpkg toolchain file
 set "CMAKE_GENERATOR=Ninja" REM CMake generator to use
-set "EXECUTABLE_NAME=CherryRecorder-Server-App.exe" REM Name of the final executable
+set "EXECUTABLE_NAME=CherryRecorder-Server-App.exe" REM Name of the final executable for Windows
 set "EXECUTABLE_PATH=%BUILD_DIR%\%EXECUTABLE_NAME%" REM Full path to the executable
+
+echo Cleaning up previous build directory...
+if exist "%BUILD_DIR%" (
+    rmdir /s /q "%BUILD_DIR%"
+)
 
 echo Configuring CMake...
 echo   Source Dir: %SOURCE_DIR%
@@ -119,8 +124,25 @@ if not exist "%EXECUTABLE_PATH%" (
     exit /b 1
 )
 
-REM Execute the built server application
-"%EXECUTABLE_PATH%"
+REM --- HTTPS Configuration ---
+set "CERT_PATH=%SOURCE_DIR%\cert.pem"
+set "KEY_PATH=%SOURCE_DIR%\key.pem"
+set "HTTPS_ARGS="
+
+if exist "%CERT_PATH%" (
+    if exist "%KEY_PATH%" (
+        echo Found cert.pem and key.pem. Enabling HTTPS.
+        set "HTTPS_ARGS=--cert_path=\"%CERT_PATH%\" --key_path=\"%KEY_PATH%\""
+    ) else (
+        echo Found cert.pem but key.pem is missing. HTTPS will be disabled.
+    )
+) else (
+    echo Certificate files not found. HTTPS will be disabled.
+)
+
+REM Execute the built server application with or without HTTPS arguments
+echo Running command: "%EXECUTABLE_PATH%" %HTTPS_ARGS%
+"%EXECUTABLE_PATH%" %HTTPS_ARGS%
 
 echo Server exited. Press any key to close window.
 pause

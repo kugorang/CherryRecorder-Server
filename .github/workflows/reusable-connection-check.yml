@@ -13,11 +13,21 @@ on:
         required: true
         type: string
         default: "8080"
+      http_port:
+        description: 'HTTP 서버 포트 번호'
+        required: false
+        type: string
+        default: "8080"
       echo_server_port:
-        description: 'TCP Echo 서버 리슨 포트 번호'
-        required: true
+        description: '(Deprecated) TCP Echo 서버 리슨 포트 번호 - 호환성을 위해 유지'
+        required: false
         type: string
         default: "33333"
+      websocket_port:
+        description: 'WebSocket Chat 서버 포트 번호'
+        required: false
+        type: string
+        default: "33334"
       max_attempts:
         description: '각 포트에 대한 최대 연결 시도 횟수'
         required: false
@@ -78,11 +88,14 @@ jobs:
         env:
           SERVER_ADDRESS: ${{ inputs.server_address }}
           HEALTH_PORT: ${{ inputs.health_check_port }}
+          HTTP_PORT: ${{ inputs.http_port }}
           MAX_ATTEMPTS: ${{ inputs.max_attempts }}
           TIMEOUT: ${{ inputs.connect_timeout_seconds }}
           EXPECTED_RESPONSE: ${{ inputs.expected_http_response }}
         run: |
-          URL="http://$SERVER_ADDRESS:$HEALTH_PORT/health"
+          # HTTP 포트가 지정된 경우 사용, 아니면 health check 포트 사용
+          PORT=${HTTP_PORT:-$HEALTH_PORT}
+          URL="http://$SERVER_ADDRESS:$PORT/health"
           echo "Checking HTTP endpoint: $URL"
           
           for i in $(seq 1 $MAX_ATTEMPTS); do
@@ -148,10 +161,13 @@ jobs:
         env:
             SERVER_ADDRESS: ${{ inputs.server_address }}
             ECHO_PORT: ${{ inputs.echo_server_port }}
+            WEBSOCKET_PORT: ${{ inputs.websocket_port }}
             MAX_ATTEMPTS: ${{ inputs.max_attempts }}
             TIMEOUT: ${{ inputs.connect_timeout_seconds }}
         run: |
-            echo "Checking TCP port $ECHO_PORT on $SERVER_ADDRESS..."
+            # WebSocket 포트가 지정된 경우 사용, 아니면 echo port 사용
+            PORT=${WEBSOCKET_PORT:-$ECHO_PORT}
+            echo "Checking TCP port $PORT on $SERVER_ADDRESS..."
     
             for i in $(seq 1 $MAX_ATTEMPTS); do
                 # 지수 백오프 시간 계산 (시도 횟수 * 5초)
@@ -166,8 +182,8 @@ jobs:
                 # 연결 성공 시 nc는 0을 반환하고, stderr에 "Connection to ... succeeded!" 출력
                 # 실패 시 0이 아닌 값 반환
                 # stderr 출력을 확인하지 않고 종료 코드만 확인
-                if nc -z -v -w $TIMEOUT $SERVER_ADDRESS $ECHO_PORT; then
-                    echo "TCP connection successful to $SERVER_ADDRESS:$ECHO_PORT"
+                if nc -z -v -w $TIMEOUT $SERVER_ADDRESS $PORT; then
+                    echo "TCP connection successful to $SERVER_ADDRESS:$PORT"
                     echo "tcp_success=true" >> $GITHUB_OUTPUT
                     exit 0
                 else

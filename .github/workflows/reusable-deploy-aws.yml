@@ -25,10 +25,25 @@ on:
         default: "8080"
         description: HTTP Health Check 서버가 사용할 컨테이너 포트
       echo_server_port_value:  # TCP Echo 서버 포트 입력 추가
-        required: true
+        required: false
         type: string
         default: "33333"
-        description: TCP Echo 서버가 사용할 컨테이너 포트
+        description: (Deprecated) TCP Echo 서버가 사용할 컨테이너 포트
+      http_port_value:
+        required: false
+        type: string
+        default: "8080"
+        description: HTTP 서버가 사용할 컨테이너 포트
+      https_port_value:
+        required: false
+        type: string
+        default: "58080"
+        description: HTTPS 서버가 사용할 컨테이너 포트
+      websocket_port_value:
+        required: false
+        type: string
+        default: "33334"
+        description: WebSocket Chat 서버가 사용할 컨테이너 포트
       task_definition_template_path:
         required: true
         type: string
@@ -82,7 +97,9 @@ jobs:
           GOOGLE_MAPS_API_KEY_VALUE="${{ secrets.GOOGLE_MAPS_API_KEY }}"
 
           jq --argjson health_port "${{ inputs.health_check_port_value }}" \
-             --argjson echo_port "${{ inputs.echo_server_port_value }}" \
+             --argjson http_port "${{ inputs.http_port_value }}" \
+             --argjson https_port "${{ inputs.https_port_value }}" \
+             --argjson websocket_port "${{ inputs.websocket_port_value }}" \
              --arg image "${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}" \
              --arg family "${{ inputs.ecs_task_def_family }}" \
              --arg execution_role_arn "${{ secrets.task_execution_role_arn }}" \
@@ -95,17 +112,22 @@ jobs:
               | .containerDefinitions[0].name = $container_name
               | .containerDefinitions[0].image = $image
               | .containerDefinitions[0].portMappings = [
-                 { "containerPort": $health_port, "hostPort": 0, "protocol": "tcp", "name": "http-health" },
-                 { "containerPort": $echo_port,   "hostPort": 0, "protocol": "tcp", "name": "tcp-echo" }
+                 { "containerPort": $http_port, "hostPort": 0, "protocol": "tcp", "name": "http" },
+                 { "containerPort": $https_port, "hostPort": 0, "protocol": "tcp", "name": "https" },
+                 { "containerPort": $websocket_port, "hostPort": 0, "protocol": "tcp", "name": "websocket" }
                ]
               | .containerDefinitions[0].environment = [
-                 { "name": "HEALTH_CHECK_PORT", "value": ($health_port | tostring) },
-                 { "name": "ECHO_SERVER_PORT", "value": ($echo_port | tostring) },
-                 { "name": "HTTP_THREADS", "value": "4" },
+                 { "name": "HTTP_PORT", "value": ($http_port | tostring) },
+                 { "name": "HTTPS_PORT", "value": ($https_port | tostring) },
+                 { "name": "WEBSOCKET_PORT", "value": ($websocket_port | tostring) },
                  { "name": "GOOGLE_MAPS_API_KEY", "value": $google_maps_api_key }
                ]
               | .containerDefinitions[0].logConfiguration.options."awslogs-group" = "/ecs/" + $family
               | .containerDefinitions[0].logConfiguration.options."awslogs-region" = $aws_region
+              | .containerDefinitions[0].healthCheck.command = [
+                 "CMD-SHELL",
+                 "curl -f http://localhost:" + ($http_port | tostring) + "/health || exit 1"
+               ]
              ' ${{ inputs.task_definition_template_path }} > rendered.json
 
           echo "Rendered Task Definition:"

@@ -53,6 +53,8 @@ if(WIN32)
     # MSVC 컴파일러 UTF-8 소스 코드 처리 옵션 및 C++ 표준 명시
     # CMAKE_CXX_STANDARD 설정만으로는 부족할 경우를 대비해 명시적으로 플래그 추가
     add_compile_options(/utf-8 /std:c++20 /Zc:__cplusplus)
+    # Enable big object files for complex templates
+    add_compile_options(/bigobj)
     message(STATUS "MSVC: Added /utf-8, /std:c++20, /Zc:__cplusplus compile options.")
 
     # MSVC Hot Reload (Edit and Continue) 지원 설정
@@ -73,13 +75,24 @@ endif()
 # Boost::headers는 많은 Boost 라이브러리에서 필요하다.
 find_package(Boost 1.70.0 REQUIRED COMPONENTS system asio beast json)
 find_package(OpenSSL REQUIRED)
-find_package(GTest CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(Threads REQUIRED) # Find pthreads on non-Windows
+
+# Proxygen 및 의존성 찾기 (비-Windows 전용)
+if(NOT WIN32)
+    find_package(proxygen CONFIG REQUIRED)
+    find_package(folly CONFIG REQUIRED)
+    find_package(fizz CONFIG REQUIRED)
+    find_package(wangle CONFIG REQUIRED)
+    find_package(gflags CONFIG REQUIRED)
+    find_package(glog CONFIG REQUIRED)
+    message(STATUS "Proxygen and its dependencies found (non-Windows build).")
+endif()
 
 message(STATUS "Boost include directories: ${Boost_INCLUDE_DIRS}")
 message(STATUS "OpenSSL include directories: ${OPENSSL_INCLUDE_DIR}")
 message(STATUS "spdlog include directories: ${spdlog_INCLUDE_DIRS}") # Check variable name from find_package
+message(STATUS "Proxygen found: TRUE")
 
 # ----------------------------------------------------------------------
 # Chat Library Target (ChatLib)
@@ -110,45 +123,13 @@ if(Threads_FOUND AND NOT WIN32)
 endif()
 message(STATUS "Configured target: ChatLib (Chat Server Logic)")
 
-# ----------------------------------------------------------------------
-# Echo Server Library Target (EchoServerLib) - Renamed for clarity
-# ----------------------------------------------------------------------
-add_library(EchoServerLib) # 소스 파일은 target_sources 로 추가 권장
-
-# target_sources를 사용하여 소스 파일을 명시적으로 추가합니다 (가독성 및 관리 용이성)
-target_sources(EchoServerLib
-    PRIVATE
-        src/CherryRecorder-Server.cpp
+# --- 라이브러리 타겟 정의: HttpServerLib (HTTP Health Check 및 API) ---
+add_library(HttpServerLib STATIC)
+target_sources(HttpServerLib PRIVATE
+    src/HttpServer.cpp
+    src/HttpsServer.cpp  # HTTPS 서버 추가
+    src/handlers/PlacesApiHandler.cpp # API 핸들러
 )
-
-# 외부에서 이 라이브러리를 사용할 때 필요한 include 경로를 PUBLIC으로 지정합니다.
-target_include_directories(EchoServerLib PUBLIC
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-        # Boost 헤더 경로 추가 (find_package 결과 사용)
-        $<BUILD_INTERFACE:${Boost_INCLUDE_DIRS}>
-)
-
-# vcpkg를 통해 Boost.Asio 의존성을 찾습니다. CONFIG 모드는 vcpkg 연동 시 표준 방식입니다.
-# find_package(boost_asio CONFIG REQUIRED)  # vcpkg + find_package(Boost ...) 사용 시 불필요
-# find_package(boost_json CONFIG REQUIRED)  # vcpkg + find_package(Boost ...) 사용 시 불필요
-# 찾은 Boost.Asio 라이브러리를 PUBLIC으로 링크합니다 (헤더에서 Asio 사용 시 필요).
-target_link_libraries(EchoServerLib
-    PUBLIC
-        Boost::asio
-        Boost::system
-        Boost::json
-        spdlog::spdlog
-)
-message(STATUS "Configured target: CherryRecorder-Server library (TCP Echo)")
-
-# --- 라이브러리 타겟 정의: HttpServerLib (HTTP Health Check) ---
-add_library(HttpServerLib)
-target_sources(HttpServerLib PRIVATE 
-    src/HttpServer.cpp 
-    src/handlers/PlacesApiHandler.cpp
-) # HttpServer 구현 소스
 target_include_directories(HttpServerLib PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> # HttpServer.hpp 포함
     $<INSTALL_INTERFACE:include>
@@ -171,15 +152,51 @@ if(NOT WIN32)
 endif()
 message(STATUS "Configured target: HttpServerLib library (HTTP Health)")
 
+# ----------------------------------------------------------------------
+# Proxygen 기반 HTTP/HTTPS 서버 라이브러리 (ProxygenHttpServerLib)
+# ----------------------------------------------------------------------
+if(NOT WIN32)
+    add_library(ProxygenHttpServerLib)
+    target_sources(ProxygenHttpServerLib PRIVATE 
+        src/ProxygenHttpServer.cpp 
+        src/handlers/PlacesApiHandler.cpp  # Places API 핸들러 재사용
+    )
+    target_include_directories(ProxygenHttpServerLib PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_link_libraries(ProxygenHttpServerLib PUBLIC
+        proxygen::proxygenhttpserver
+        Folly::folly
+        fizz::fizz
+        wangle::wangle
+        gflags
+        glog::glog
+        OpenSSL::SSL
+        OpenSSL::Crypto
+        Boost::json  # PlacesApiHandler에서 사용
+        spdlog::spdlog
+    )
+    # 플랫폼별 스레드 라이브러리 링크
+    if(Threads_FOUND)
+        target_link_libraries(ProxygenHttpServerLib PUBLIC Threads::Threads)
+    endif()
+    message(STATUS "Configured target: ProxygenHttpServerLib (Proxygen-based HTTP/HTTPS for non-Windows)")
+endif()
+
 # --- 라이브러리 타겟 정의: ChatServerLib (채팅 서버 로직) ---
-add_library(ChatServerLib)
-target_sources(ChatServerLib PRIVATE 
+add_library(ChatServerLib STATIC)
+target_sources(ChatServerLib PRIVATE
     src/ChatServer.cpp
-    src/ChatSession.cpp
     src/ChatRoom.cpp
-    src/ChatListener.cpp
     src/MessageHistory.cpp
-) 
+    # 세션 관리
+    src/ChatSession.cpp
+    # WebSocket 리스너 및 세션
+    src/WebSocketListener.cpp
+    src/WebSocketSession.cpp
+    src/WebSocketSSLSession.cpp
+)
 target_include_directories(ChatServerLib PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> # ChatServer.hpp 등
     $<INSTALL_INTERFACE:include>
@@ -201,154 +218,104 @@ endif()
 message(STATUS "Configured target: ChatServerLib library (WebSocket Chat)")
 
 # ----------------------------------------------------------------------
-# 실행 파일 타겟 정의 (CherryRecorder-Server-App)
+# 실행 파일 타겟 정의
 # ----------------------------------------------------------------------
-# OpenSSL 패키지를 찾는다 (vcpkg를 통해 설치되었다고 가정)
-find_package(OpenSSL REQUIRED)
 
-# --- 디버깅 메시지 추가 ---
-if(OPENSSL_FOUND)
-    message(STATUS "OpenSSL Found!")
-    message(STATUS "  Includes: ${OPENSSL_INCLUDE_DIR}")
-    message(STATUS "  Libraries (SSL): ${OPENSSL_SSL_LIBRARY}")
-    message(STATUS "  Libraries (Crypto): ${OPENSSL_CRYPTO_LIBRARY}")
-    message(STATUS "  Libraries (Imported Targets): ${OPENSSL_LIBRARIES}") # CMake 3.18+ 에서 OpenSSL::SSL, OpenSSL::Crypto 타겟 제공 확인
-else()
-    message(FATAL_ERROR "OpenSSL could not be found!")
-endif()
-# --- 디버깅 메시지 끝 ---
-
-message(STATUS "Found OpenSSL: TRUE (includes: ${OPENSSL_INCLUDE_DIR}, libraries: ${OPENSSL_LIBRARIES})")
-
-# 실제 서버 애플리케이션의 진입점(main 함수 포함)을 정의합니다.
-add_executable(CherryRecorder-Server-App)
-
-target_sources(CherryRecorder-Server-App 
-    PRIVATE
-        src/main.cpp
-)
-target_include_directories(CherryRecorder-Server-App 
-    PRIVATE 
-        # Include paths needed specifically by main.cpp, if any
-        # Inherited PUBLIC includes from linked libraries are usually sufficient
-        ${Boost_INCLUDE_DIRS}) # main 에서 Boost 사용 시
-
-# 필요한 라이브러리들 링크 (하나로 병합)
-target_link_libraries(CherryRecorder-Server-App
-    PRIVATE
-        EchoServerLib           # TCP Echo 로직 라이브러리
-        HttpServerLib           # HTTP 서버 로직 라이브러리
-        ChatServerLib           # 채팅 서버 로직 라이브러리
-        # main.cpp에서 직접 사용하는 라이브러리가 있다면 여기에 추가
-        OpenSSL::SSL            # OpenSSL SSL 라이브러리 링크
-        OpenSSL::Crypto         # OpenSSL Crypto 라이브러리 링크
-        # spdlog::spdlog # Already linked PUBLICLY by libraries, typically not needed here again
-        # Threads::Threads # Already linked PUBLICLY by libraries if needed
-)
-
-# 위에서 정의한 CherryRecorder-Server 라이브러리를 PRIVATE으로 링크합니다.
-# App 내부에서만 Server 라이브러리를 사용하고 외부로 노출하지 않습니다.
-
-# 플랫폼에 따라 스레드 라이브러리 조건부 링크
-if(Threads_FOUND AND NOT WIN32) # Threads를 찾았고 Windows가 아닐 경우에만 링크
-  target_link_libraries(CherryRecorder-Server-App PRIVATE Threads::Threads)
-  message(STATUS "Linking with Threads::Threads on non-Windows platform.")
-elseif(WIN32)
-  message(STATUS "Windows platform detected, assuming native threads support via C++ standard library. Skipping explicit Threads::Threads linkage.")
-else()
-  message(WARNING "Threads library not found and not on Windows. Manual thread library configuration might be needed for this platform.")
+# Windows 전용 실행 파일 (Boost.Beast 기반)
+if(WIN32)
+    add_executable(CherryRecorder-Server-App)
+    target_sources(CherryRecorder-Server-App 
+        PRIVATE
+            src/main.cpp
+    )
+    target_include_directories(CherryRecorder-Server-App 
+        PRIVATE 
+            ${Boost_INCLUDE_DIRS}
+    )
+    target_link_libraries(CherryRecorder-Server-App
+        PRIVATE
+            ChatServerLib
+            HttpServerLib
+            OpenSSL::SSL
+            OpenSSL::Crypto
+    )
+    message(STATUS "Configured target: CherryRecorder-Server-App executable for Windows")
 endif()
 
-message(STATUS "Configured target: CherryRecorder-Server-App executable")
+# 비-Windows 전용 실행 파일 (Proxygen 기반)
+if(NOT WIN32)
+    add_executable(CherryRecorder-Proxygen-App)
+    target_sources(CherryRecorder-Proxygen-App PRIVATE
+        src/main_proxygen.cpp  # Proxygen 전용 main 파일
+    )
+    target_link_libraries(CherryRecorder-Proxygen-App PRIVATE
+        ProxygenHttpServerLib
+        ChatServerLib  # 채팅 서버도 함께 실행
+    )
+    if(Threads_FOUND)
+        target_link_libraries(CherryRecorder-Proxygen-App PRIVATE Threads::Threads)
+    endif()
+    message(STATUS "Configured target: CherryRecorder-Proxygen-App executable for non-Windows")
+endif()
 
 # ----------------------------------------------------------------------
-# 테스트 타겟 정의 (CherryRecorder-Server-Testing)
+# 테스트 설정 (gtest)
 # ----------------------------------------------------------------------
-# 테스트 빌드 여부를 결정하는 CMake 옵션 (기본값 ON)
-option(BUILD_TESTING "Build the unit tests" ON)
+# BUILD_TESTING 옵션 정의 (기본값 OFF)
+# 이 옵션을 ON으로 설정해야만 테스트 빌드가 활성화됩니다.
+option(BUILD_TESTING "Build the tests" OFF)
 
-# BUILD_TESTING 옵션이 ON일 때만 테스트 관련 내용을 처리합니다.
 if(BUILD_TESTING)
-  # CTest 시스템 활성화
-  enable_testing()
+    message(STATUS "BUILD_TESTING is ON. Configuring tests...")
 
-  # 테스트용 실행 파일을 정의합니다.
-  add_executable(CherryRecorder-Server-Testing)
-  target_sources(CherryRecorder-Server-Testing 
-    PRIVATE
-      tests/test_main.cpp
-      tests/test_http_server.cpp
-      tests/test_chat_server.cpp
-      tests/test_echo_server.cpp
-  )
-  target_include_directories(CherryRecorder-Server-Testing 
-    PRIVATE
-        # Inherits PUBLIC includes from linked libs (like ChatLib's include dir)
-        ${Boost_INCLUDE_DIRS}   # 테스트에도 Boost 필요
-  )
-  # 테스트 실행 파일에 필요한 라이브러리들을 PRIVATE으로 링크합니다.
-  # GTest::gtest_main 타겟은 GTest 라이브러리와 main 함수를 포함합니다.
-  # 테스트 실행 파일에 필요한 라이브러리 링크
-  target_link_libraries(CherryRecorder-Server-Testing PRIVATE
-      EchoServerLib         # EchoServer 테스트 위해 필요
-      HttpServerLib         # HttpServer 테스트 위해 필요
-      ChatServerLib         # ChatServer 테스트 위해 필요
-      GTest::gtest_main     # GTest
-      Boost::system         # 테스트 코드에서 Boost 사용 시
-      OpenSSL::SSL          # Add OpenSSL SSL library
-      OpenSSL::Crypto       # Add OpenSSL Crypto library
-      # 필요한 다른 라이브러리 (테스트 코드에서 사용 시)
-      # Boost::system etc. are likely inherited via PUBLIC link from libraries
-      # spdlog::spdlog is inherited
-      # Threads::Threads is inherited if needed
-  )
+    # vcpkg를 통해 gtest를 찾습니다.
+    # vcpkg.json의 "features" 섹션에 "test"가 정의되어 있어야 합니다.
+    # (예: "gtest": {"host": true, "features": ["test"]})
+    # CMake 실행 시 -DVCPKG_MANIFEST_FEATURES=test 플래그가 필요할 수 있습니다.
+    find_package(GTest REQUIRED)
+    
+    # googletest 활성화
+    include(GoogleTest)
 
-  # 플랫폼에 따라 스레드 라이브러리 조건부 링크
-  if(Threads_FOUND AND NOT WIN32) # Threads를 찾았고 Windows가 아닐 경우에만 링크
-    target_link_libraries(CherryRecorder-Server-Testing PRIVATE Threads::Threads)
-    message(STATUS "Linking with Threads::Threads on non-Windows platform.")
-  elseif(WIN32)
-    message(STATUS "Windows platform detected, assuming native threads support via C++ standard library. Skipping explicit Threads::Threads linkage.")
-  else()
-    message(WARNING "Threads library not found and not on Windows. Manual thread library configuration might be needed for this platform.")
-  endif()
+    # 테스트 실행 파일 정의
+    add_executable(CherryRecorder-Tests
+        tests/main.test.cpp
+        tests/ChatRoom.test.cpp
+        tests/ChatServer.test.cpp
+        tests/MessageHistory.test.cpp
+        tests/TestUtils.cpp
+    )
 
-  # CTest 프레임워크에 실행할 테스트를 등록합니다.
-  # 기존 단일 테스트 주석 처리 또는 삭제
-  # add_test(NAME CherryRecorderServerTest COMMAND CherryRecorder-Server-Testing)
-
-  # HTTP 서버 테스트 분리 (타임아웃 추가)
-  add_test(NAME HttpServerTest COMMAND CherryRecorder-Server-Testing --gtest_filter=HttpServerTest.*)
-  set_tests_properties(HttpServerTest PROPERTIES TIMEOUT 60)
-
-  # 채팅 서버 테스트 분리 (타임아웃 추가)
-  add_test(NAME ChatServerTest COMMAND CherryRecorder-Server-Testing --gtest_filter=ChatServerTest.*)
-  set_tests_properties(ChatServerTest PROPERTIES TIMEOUT 60)
-
-  # 필요 시 다른 테스트 그룹 추가 (예: TCP Echo 테스트)
-  add_test(NAME EchoServerTest COMMAND CherryRecorder-Server-Testing --gtest_filter=EchoServerTest.*)
-  set_tests_properties(EchoServerTest PROPERTIES TIMEOUT 60)
-
-  message(STATUS "Configured separate CTest tests: HttpServerTest, ChatServerTest, EchoServerTest")
+    # 테스트 실행 파일에 필요한 라이브러리 링크
+    target_link_libraries(CherryRecorder-Tests PRIVATE
+        ChatLib
+        gmock_main # gmock과 gtest를 모두 포함하며 main 함수 제공
+        GTest::gtest
+        GTest::gmock
+    )
+    
+    # gtest_discover_tests를 사용하여 CTest에 테스트를 추가합니다.
+    gtest_discover_tests(CherryRecorder-Tests)
+    
+    message(STATUS "Configured target: CherryRecorder-Tests executable")
 
 else()
-  message(STATUS "BUILD_TESTING is OFF. Skipping test configuration.")
+    message(STATUS "BUILD_TESTING is OFF. Skipping test configuration.")
 endif()
 
-# ======================================================================
-# 설치 규칙 정의 (선택 사항)
-# ======================================================================
-# 만약 'cmake --install' 명령어를 사용할 계획이라면,
-# 라이브러리, 실행 파일, 헤더 등을 설치할 위치와 방법을 정의해야 합니다.
-# include(GNUInstallDirs)
-# install(TARGETS CherryRecorder-Server CherryRecorder-Server-App
-#     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-#     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-#     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-# )
-# install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-# message(STATUS "Install rules configured (optional).")
-# ======================================================================
+# ----------------------------------------------------------------------
+# 설치 설정 (선택 사항)
+# ----------------------------------------------------------------------
+# 설치(install) 명령어를 사용할 경우, 실행 파일과 라이브러리를
+# 지정된 디렉토리에 복사하도록 설정할 수 있습니다.
+# 예: install(TARGETS CherryRecorder-Server-App DESTINATION bin)
+# 현재 프로젝트에서는 로컬 빌드 및 실행이 주 목적이므로 생략합니다.
+
+# ----------------------------------------------------------------------
+# CPack 설정 (선택 사항)
+# ----------------------------------------------------------------------
+# 애플리케이션 배포 패키지(예: .zip, .tar.gz)를 생성하기 위한 설정입니다.
+# 현재 프로젝트에서는 필요하지 않으므로 생략합니다.
 
 # 항상 Release 모드로 설정
 add_compile_definitions(RELEASE_MODE)

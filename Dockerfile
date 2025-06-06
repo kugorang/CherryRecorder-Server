@@ -1,5 +1,6 @@
+# syntax=docker/dockerfile:1
 # ======================================================================
-# Dockerfile for CherryRecorder Server (Optimized Multi-stage Build)
+# Dockerfile for CherryRecorder Server (Optimized Multi-stage Build with Proxygen)
 # ======================================================================
 
 # ----------------------------------------------------------------------
@@ -11,7 +12,7 @@ LABEL stage="builder"
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# --- STEP 1: 빌드 도구 설치 ---
+# --- STEP 1: 빌드 도구 및 Proxygen 의존성 설치 ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
@@ -25,6 +26,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     ninja-build \
     libssl-dev \
+    gperf \
+    libunwind-dev \
+    autoconf \
+    automake \
+    libtool \
+    linux-libc-dev \
+    python3 \
+    python3-setuptools \
     && rm -rf /var/lib/apt/lists/*
 
 # --- STEP 1.5: 최신 CMake 설치 ---
@@ -46,29 +55,100 @@ RUN git clone https://github.com/microsoft/vcpkg.git && \
     cd .. && \
     ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
-# --- STEP 3: 애플리케이션 코드 및 설정 파일 복사 ---
-WORKDIR /app
-COPY vcpkg.json ./
-COPY CMakeLists.txt ./
-COPY src ./src
-COPY include ./include
+# vcpkg 바이너리 캐싱 활성화
+ENV VCPKG_BINARY_SOURCES="clear;default,readwrite"
 
-# --- STEP 4a: 애플리케이션 빌드 (CMake Configure) ---
-RUN cmake -S . -B build \
+# vcpkg 빌드 최적화 환경 변수
+ENV VCPKG_MAX_CONCURRENCY=4
+ENV VCPKG_DISABLE_METRICS=1
+ENV VCPKG_DEFAULT_TRIPLET=x64-linux
+# 추가 최적화: 병렬 다운로드 증가, 빌드 타입 최적화
+ENV VCPKG_DOWNLOADS_CONCURRENCY=8
+ENV VCPKG_BUILD_TYPE=release
+ENV VCPKG_INSTALL_OPTIONS="--x-use-aria2"
+
+# aria2c 설치 (더 빠른 다운로드를 위해)
+RUN apt-get update && apt-get install -y --no-install-recommends aria2 && rm -rf /var/lib/apt/lists/*
+
+# --- STEP 3: 의존성 설치 (vcpkg) ---
+# vcpkg.json과 CMakeLists.txt를 먼저 복사하여 의존성 레이어를 분리합니다.
+# 이 파일들이 변경되지 않으면 아래 RUN 레이어는 캐시됩니다.
+WORKDIR /app
+COPY vcpkg.json .
+COPY CMakeLists.txt .
+
+# 더미 소스 파일 및 디렉토리 생성 (CMake 구성이 실패하지 않도록)
+# CMakeLists.txt에 명시된 모든 소스 파일 경로를 기반으로 빈 파일을 생성합니다.
+RUN mkdir -p src/handlers && \
+    touch src/main.cpp \
+          src/main_proxygen.cpp \
+          src/HttpServer.cpp \
+          src/HttpsServer.cpp \
+          src/ProxygenHttpServer.cpp \
+          src/ChatServer.cpp \
+          src/ChatSession.cpp \
+          src/ChatRoom.cpp \
+          src/ChatListener.cpp \
+          src/MessageHistory.cpp \
+          src/WebSocketListener.cpp \
+          src/WebSocketSession.cpp \
+          src/WebSocketSSLSession.cpp \
+          src/handlers/PlacesApiHandler.cpp && \
+    mkdir -p include/handlers && \
+    touch include/HttpServer.hpp \
+          include/ProxygenHttpServer.hpp \
+          include/ChatServer.hpp \
+          include/ChatSession.hpp \
+          include/ChatRoom.hpp \
+          include/ChatListener.hpp \
+          include/MessageHistory.hpp \
+          include/SessionInterface.hpp \
+          include/WebSocketListener.hpp \
+          include/WebSocketSession.hpp \
+          include/WebSocketSSLSession.hpp \
+          include/handlers/PlacesApiHandler.hpp
+
+# vcpkg 의존성을 설치합니다.
+# 이 단계는 시간이 오래 걸리지만, vcpkg.json이 변경되지 않는 한 캐시됩니다.
+RUN --mount=type=cache,target=/root/.cache/vcpkg \
+    --mount=type=cache,target=/opt/vcpkg/downloads \
+    --mount=type=cache,target=/opt/vcpkg/buildtrees \
+    --mount=type=cache,target=/opt/vcpkg/packages \
+    --mount=type=cache,target=/opt/vcpkg/installed \
+    --mount=type=cache,target=/app/build/vcpkg_installed \
+    --mount=type=cache,target=/tmp/vcpkg \
+    # GitHub의 vcpkg 바이너리 캐시 사용은 CI 환경에서만 유효하므로 로컬 빌드를 위해 수정
+    export VCPKG_BINARY_SOURCES="clear;default,readwrite" && \
+    # 1. vcpkg로 의존성 명시적 설치 (이 단계에서 Ninja, CXX 컴파일러 필요)
+    /opt/vcpkg/vcpkg install --triplet x64-linux --clean-after-build && \
+    # 2. CMake 실행 (이미 패키지가 설치되었으므로 빠르게 진행)
+    cmake -S . -B build \
       -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
       -DVCPKG_TARGET_TRIPLET=x64-linux \
       -DBUILD_TESTING=OFF \
-      -DCMAKE_VERBOSE_MAKEFILE=ON
+      -DCMAKE_VERBOSE_MAKEFILE=ON && \
+    # 설치된 패키지 정보 출력
+    echo "Installed vcpkg packages:" && \
+    /opt/vcpkg/vcpkg list
 
-# --- STEP 4b: 애플리케이션 빌드 (CMake Build) ---
-RUN cmake --build build -j $(nproc)
+# --- STEP 4: 소스 코드 복사 및 빌드 ---
+# 실제 소스 코드를 복사합니다. 이 단계부터는 소스 코드가 변경될 때마다 다시 실행됩니다.
+COPY src/ src/
+COPY include/ include/
+
+# SSL 인증서 파일은 AWS NLB에서 SSL termination을 처리하므로 컨테이너에서는 필요하지 않음
+# 로컬 개발이나 자체 HTTPS가 필요한 경우 아래 주석을 해제
+# COPY cert.pem ./cert.pem
+# COPY key.pem ./key.pem
+
+# 이미 구성된 빌드 디렉터리를 사용하여 애플리케이션을 빌드합니다.
+RUN cmake --build build --target CherryRecorder-Proxygen-App -j $(nproc)
 
 # --- STEP 5: 빌드된 실행 파일 의존성 확인 ---
-RUN echo "--- Required Shared Libraries ---" && \
-    ldd /app/build/CherryRecorder-Server-App || echo "ldd failed, executable might not exist yet" && \
-    echo "--- End of Shared Library List ---"
+# ldd를 사용하여 실행 파일의 동적 라이브러리 의존성을 확인합니다 (디버깅용).
+RUN ldd /app/build/CherryRecorder-Proxygen-App || echo "ldd check skipped or failed"
 
 # ----------------------------------------------------------------------
 # 스테이지 2: "final" - 애플리케이션 실행 전용 환경
@@ -76,25 +156,26 @@ RUN echo "--- Required Shared Libraries ---" && \
 FROM ubuntu:24.04 AS final
 
 LABEL maintainer="Kim Hyeonwoo <ialskdji@gmail.com>" \
-      description="CherryRecorder Server Application - HTTP & WebSocket Services" \
-      version="0.1.1"
+      description="CherryRecorder Server Application - Proxygen HTTP/S, WebSocket Services" \
+      version="0.2.0"
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 런타임 의존성 설치
+# 런타임 의존성 설치 (Proxygen 스택 포함)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     libssl3 \
+    libunwind8 \
+    libgoogle-glog0v6 \
+    libgflags2.2 \
+    libzstd1 \
+    libsodium23 \
+    libdouble-conversion3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Builder 스테이지에서 빌드된 vcpkg 라이브러리 복사
-COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/libboost_system.so* /usr/local/lib/
-COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/libboost_asio.so* /usr/local/lib/
-COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/libboost_beast.so* /usr/local/lib/
-COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/libboost_json.so* /usr/local/lib/
-COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/libssl.so* /usr/local/lib/
-COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/libcrypto.so* /usr/local/lib/
+# Builder 스테이지에서 빌드된 vcpkg 라이브러리 전체 복사
+COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/*.so* /usr/local/lib/
 
 # 라이브러리 캐시 업데이트
 RUN ldconfig
@@ -103,8 +184,11 @@ RUN ldconfig
 RUN useradd --system --create-home --shell /bin/bash appuser
 WORKDIR /home/appuser/app
 
-# 최종 실행 파일 복사
-COPY --from=builder --chown=appuser:appuser /app/build/CherryRecorder-Server-App ./CherryRecorder-Server-App
+# 최종 실행 파일 및 인증서 복사
+COPY --from=builder --chown=appuser:appuser /app/build/CherryRecorder-Proxygen-App ./CherryRecorder-Proxygen-App
+# SSL 인증서는 AWS NLB에서 처리하므로 복사하지 않음
+# COPY --from=builder --chown=appuser:appuser /app/cert.pem ./cert.pem
+# COPY --from=builder --chown=appuser:appuser /app/key.pem ./key.pem
 
 # 애플리케이션이 사용할 디렉토리 생성 및 권한 설정
 RUN mkdir -p history && chown appuser:appuser history
@@ -112,15 +196,17 @@ RUN mkdir -p history && chown appuser:appuser history
 # 사용자 전환
 USER appuser
 
-# 기본 포트 노출 (문서화 목적, 실행 시 -p 옵션으로 오버라이드 가능)
-EXPOSE 8080 33334 33333
+# 기본 포트 노출 (HTTP, HTTPS, WS, WSS)
+EXPOSE 8080 58080 33334 33335
 
-# Health Check (기본 포트 사용, 실제 값은 환경 변수에서 가져옴)
+# Health Check (HTTP 포트 사용)
 HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 \
   CMD curl --fail http://127.0.0.1:${HTTP_PORT:-8080}/health || exit 1
 
 # --- 컨테이너 실행 가이드 ---
-# 실행 시 필요한 환경 변수는 docker run 명령어의 --env-file 옵션(.env 파일)을 통해 주입
-# 예시: docker run -p 8080:8080 -p 33334:33334 -p 33333:33333 --env-file .env <이미지_이름>
+# docker-compose.yml 또는 docker run 명령어의 --env-file 옵션을 통해 환경 변수 주입
+# AWS 환경에서는 NLB가 SSL termination을 처리하므로 HTTP 포트만 사용
+# 자체 HTTPS가 필요한 경우 cert.pem과 key.pem 파일을 추가하고 아래 CMD 사용
+# CMD ["./CherryRecorder-Proxygen-App", "--cert_path=./cert.pem", "--key_path=./key.pem"]
 
-CMD ["./CherryRecorder-Server-App"]
+CMD ["./CherryRecorder-Proxygen-App"]
