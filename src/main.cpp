@@ -1,5 +1,11 @@
 #include "HttpServer.hpp"          // HTTP Server 헤더 (Beast)
+#include "HttpsServer.hpp"         // HTTPS Server 헤더
+#include "../include/ChatServer.hpp"  // ChatServer 추가
 #include <boost/asio/io_context.hpp> // Asio io_context
+#include <boost/asio/signal_set.hpp> // Asio signal_set
+#include <boost/asio/ssl.hpp>        // SSL support
+#include <boost/beast/core/error.hpp> // beast::error_code
+#include <cstdio>                  // fprintf, snprintf 등 C-style I/O
 #include <cstdlib>                 // getenv, exit, stoi (C++11)
 #include <iostream>
 #include <stdexcept>               // runtime_error
@@ -8,7 +14,7 @@
 #include <vector>
 #include <csignal>                 // signal, SIGINT, SIGTERM
 #include <atomic>                  // std::atomic_bool
-#include <memory>                  // std::unique_ptr
+#include <memory>                  // std::unique_ptr, std::make_shared
 #include <system_error>            // std::system_error (예외 처리)
 
 #ifdef _WIN32
@@ -18,15 +24,19 @@
 #endif
 
 // --- 추가된 include ---
-#include "../include/CherryRecorder-Server.hpp" // EchoServer 추가
 #include "../include/ChatServer.hpp"         // ChatServer 추가
+#include "../include/WebSocketListener.hpp"  // WebSocket Listener 추가
 
+// --- 네임스페이스 별칭 ---
+// Boost.Asio와 Beast를 더 간결하게 사용하기 위함
+namespace net = boost::asio;
+namespace beast = boost::beast;
 
 /**
  * @file main.cpp
  * @brief CherryRecorder 서버 애플리케이션의 메인 진입점 파일.
  *
- * 환경 변수에서 설정을 읽어 HTTP 서버, Echo 서버, Chat 서버를 생성하고 실행한다.
+ * 환경 변수에서 설정을 읽어 HTTP 서버와 Chat 서버를 생성하고 실행한다.
  * POSIX 시그널(SIGINT, SIGTERM)을 처리하여 서버의 정상 종료(graceful shutdown)를 지원한다.
  * Windows 환경에서는 콘솔 입출력 인코딩을 UTF-8로 설정하려고 시도한다.
  */
@@ -162,20 +172,88 @@ int main(int argc, char* argv[]) {
     try {
         // --- 설정 값 읽기 (환경 변수 사용) ---
         unsigned short http_port = get_required_port_env_var("HTTP_PORT", 8080);
+        unsigned short https_port = get_required_port_env_var("HTTPS_PORT", 58080);
         std::string http_bind_ip = get_env_var("HTTP_BIND_IP", "0.0.0.0");
         int http_threads = get_int_env_var("HTTP_THREADS", 1); 
-        unsigned short chat_port = get_required_port_env_var("CHAT_SERVER_PORT", 33334);
+        unsigned short ws_port = get_required_port_env_var("WS_PORT", 33334);  // WebSocket 포트
+        unsigned short wss_port = get_required_port_env_var("WSS_PORT", 33335); // WebSocket Secure 포트
+        std::string ssl_cert = get_env_var("SSL_CERT_FILE", "");
+        std::string ssl_key = get_env_var("SSL_KEY_FILE", "");
+        std::string ssl_dh = get_env_var("SSL_DH_FILE", "");
         // int chat_threads = get_int_env_var("CHAT_THREADS", 1); // Chat 서버는 이제 공유 ioc 사용
-        unsigned short echo_port = get_required_port_env_var("ECHO_SERVER_PORT", 33333);
 
         // --- 서버 객체 생성 (로컬 스마트 포인터 사용) ---
         auto http_server = std::make_unique<HttpServer>(http_bind_ip, http_port, http_threads); 
-        auto echo_server = std::make_unique<EchoServer>(ioc, echo_port); 
-        auto chat_server = std::make_shared<ChatServer>(ioc, chat_port); 
+        std::unique_ptr<HttpsServer> https_server;
+        auto chat_server = std::make_shared<ChatServer>(ioc, ws_port);  // ChatServer를 여러 WebSocket 리스너가 공유 
+        
+        // WSS 리스너 생성 (SSL이 설정된 경우에만)
+        std::shared_ptr<WebSocketListener> wss_listener;
+        if (!ssl_cert.empty() && !ssl_key.empty()) {
+            try {
+                // SSL 컨텍스트 생성
+                net::ssl::context ctx{net::ssl::context::tlsv12};
+                
+                // SSL 옵션 설정
+                ctx.set_options(
+                    net::ssl::context::default_workarounds |
+                    net::ssl::context::no_sslv2 |
+                    net::ssl::context::no_sslv3 |
+                    net::ssl::context::no_tlsv1 |
+                    net::ssl::context::no_tlsv1_1 |
+                    net::ssl::context::single_dh_use);
+                
+                // 인증서와 키 파일 로드
+                ctx.use_certificate_chain_file(ssl_cert);
+                ctx.use_private_key_file(ssl_key, net::ssl::context::pem);
+                
+                // DH 파일이 있으면 로드
+                if (!ssl_dh.empty()) {
+                    ctx.use_tmp_dh_file(ssl_dh);
+                }
+                
+                wss_listener = std::make_shared<WebSocketListener>(
+                    ioc,
+                    net::ip::tcp::endpoint{net::ip::make_address("0.0.0.0"), wss_port},
+                    chat_server,
+                    std::move(ctx)
+                );
+                
+                fprintf(stdout, "WSS listener created with SSL certificate: %s\n", ssl_cert.c_str());
+            } catch (const std::exception& e) {
+                fprintf(stderr, "Failed to create WSS listener: %s\n", e.what());
+                fprintf(stderr, "WebSocket Secure will not be available.\n");
+            }
+        } else {
+            fprintf(stdout, "SSL certificate not configured. WSS will not be available.\n");
+        }
+        
+        // HTTPS 서버 생성 (SSL이 설정된 경우에만)
+        if (!ssl_cert.empty() && !ssl_key.empty()) {
+            try {
+                https_server = std::make_unique<HttpsServer>(
+                    http_bind_ip, https_port, http_threads,
+                    ssl_cert, ssl_key, ssl_dh
+                );
+                fprintf(stdout, "HTTPS server created with SSL certificate: %s\n", ssl_cert.c_str());
+            } catch (const std::exception& e) {
+                fprintf(stderr, "Failed to create HTTPS server: %s\n", e.what());
+                fprintf(stderr, "HTTPS will not be available.\n");
+            }
+        } else {
+            fprintf(stdout, "SSL certificate not configured. HTTPS will not be available.\n");
+        }
+        
+        // WS 리스너 생성 (비보안 WebSocket)
+        auto ws_listener = std::make_shared<WebSocketListener>(
+            ioc,
+            net::ip::tcp::endpoint{net::ip::make_address("0.0.0.0"), ws_port},
+            chat_server
+        );
         
         // --- signal_set 핸들러 설정 (서버 객체 생성 후) ---
         signals.async_wait(
-            [&ioc, &http_server, &echo_server, &chat_server](const beast::error_code& ec, int signal_number) {
+            [&ioc, &http_server, &https_server, &chat_server](const beast::error_code& ec, int signal_number) {
                 // 시그널 핸들러 (io_context 스레드에서 실행됨)
                 if (ec) { 
                     fprintf(stderr, "Signal wait error: %s\n", ec.message().c_str());
@@ -188,9 +266,9 @@ int main(int argc, char* argv[]) {
                     fprintf(stdout, "Requesting HTTP server stop...\n");
                     http_server->stop();
                 }
-                if (echo_server) {
-                    fprintf(stdout, "Requesting Echo server stop...\n");
-                    echo_server->stop();
+                if (https_server) {
+                    fprintf(stdout, "Requesting HTTPS server stop...\n");
+                    https_server->stop();
                 }
                 if (chat_server) {
                     fprintf(stdout, "Requesting Chat server stop...\n");
@@ -205,18 +283,34 @@ int main(int argc, char* argv[]) {
         
         // --- 서버 시작 ---
         http_server->run(); 
-        echo_server->start(); 
+        
+        if (https_server) {
+            https_server->run();
+        }
+        
         chat_server->run(); 
+        ws_listener->run();  // WS 리스너 시작
+        
+        if (wss_listener) {
+            wss_listener->run();
+        }
 
         fprintf(stdout, "HTTP server starting on %s:%hu (%d threads)\n", http_bind_ip.c_str(), http_port, http_threads);
-        fprintf(stdout, "Echo server starting on port %hu (using shared io_context)\n", echo_port);
-        // fprintf(stdout, "Chat server starting on port %hu (%d threads)\n", chat_port, chat_threads); // 스레드 수 정보 제거
-        fprintf(stdout, "Chat server starting on port %hu (using shared io_context)\n", chat_port);
+        
+        if (https_server) {
+            fprintf(stdout, "HTTPS server starting on %s:%hu (%d threads)\n", http_bind_ip.c_str(), https_port, http_threads);
+        }
+        
+        fprintf(stdout, "WebSocket (WS) server starting on port %hu (using shared io_context)\n", ws_port);
+        
+        if (wss_listener) {
+            fprintf(stdout, "WebSocket Secure (WSS) server starting on port %hu\n", wss_port);
+        }
 
         // --- 공유 io_context 실행 스레드 시작 ---
         std::vector<std::thread> io_threads;
         io_threads.reserve(num_total_threads);
-        fprintf(stdout, "Starting %d shared IO threads for Echo/Chat Servers...\n", num_total_threads);
+        fprintf(stdout, "Starting %d shared IO threads for Chat Server...\n", num_total_threads);
         for (int i = 0; i < num_total_threads; ++i) {
             io_threads.emplace_back([&ioc, i]() { 
                 fprintf(stdout, "[Shared IO Thread %d] Starting io_context::run()...\n", i);

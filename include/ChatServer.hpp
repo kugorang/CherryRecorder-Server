@@ -19,10 +19,13 @@
 #include <boost/asio/signal_set.hpp>
 #include <boost/beast/core/error.hpp>
 
+// Project includes
+#include "SessionInterface.hpp"
+
 // Forward declarations
-class ChatSession;
+// class ChatSession; // 이제 필요 없음
 class ChatServer;
-class ChatListener;
+// class ChatListener; // TCP 리스너 제거됨
 class UserAccount;
 class FileTransferInfo;
 class MessageHistory;
@@ -116,8 +119,8 @@ private:
     std::string id_;              ///< 전송 ID
     std::string filename_;        ///< 파일명
     size_t filesize_;             ///< 파일 크기
-    std::shared_ptr<ChatSession> sender_;   ///< 전송자
-    std::shared_ptr<ChatSession> receiver_; ///< 수신자
+    std::shared_ptr<SessionInterface> sender_;   ///< 전송자
+    std::shared_ptr<SessionInterface> receiver_; ///< 수신자
     Status status_ = Status::Pending;       ///< 전송 상태
     size_t bytes_transferred_ = 0;          ///< 전송된 바이트 수
     std::string temp_path_;       ///< 임시 파일 경로
@@ -134,8 +137,8 @@ public:
     FileTransferInfo(const std::string& id,
                     const std::string& filename,
                     size_t filesize,
-                    std::shared_ptr<ChatSession> sender,
-                    std::shared_ptr<ChatSession> receiver);
+                    std::shared_ptr<SessionInterface> sender,
+                    std::shared_ptr<SessionInterface> receiver);
     
     /**
      * @brief 전송 ID 반환.
@@ -159,13 +162,13 @@ public:
      * @brief 전송자 반환.
      * @return 전송자.
      */
-    std::shared_ptr<ChatSession> sender() const { return sender_; }
+    std::shared_ptr<SessionInterface> sender() const { return sender_; }
     
     /**
      * @brief 수신자 반환.
      * @return 수신자.
      */
-    std::shared_ptr<ChatSession> receiver() const { return receiver_; }
+    std::shared_ptr<SessionInterface> receiver() const { return receiver_; }
     
     /**
      * @brief 전송 상태 반환.
@@ -225,13 +228,13 @@ class ChatServer : public std::enable_shared_from_this<ChatServer> {
 private:
     // 서버 기본 자원
     net::io_context& ioc_;                ///< 서버가 사용할 io_context 참조
-    unsigned short port_;                 ///< 서버가 수신할 포트 번호
+    unsigned short port_;                 ///< 서버가 수신할 포트 번호 (WebSocket 리스너에서 사용)
     net::signal_set signals_;             ///< 종료 시그널(SIGINT, SIGTERM) 처리용
-    std::shared_ptr<ChatListener> listener_ = nullptr; ///< 클라이언트 연결 수신 리스너
+    // std::shared_ptr<ChatListener> listener_ = nullptr; ///< TCP 리스너 제거됨
     
     // 세션 관리
-    std::set<std::shared_ptr<ChatSession>> sessions_; ///< 현재 연결된 모든 세션
-    std::map<std::string, std::weak_ptr<ChatSession>> nicknames_; ///< 닉네임 -> 세션 맵
+    std::set<SessionPtr> sessions_; ///< 현재 연결된 모든 세션 (TCP 및 WebSocket)
+    std::map<std::string, std::weak_ptr<SessionInterface>> nicknames_; ///< 닉네임 -> 세션 맵
     
     // 채팅방 관리
     std::map<std::string, std::shared_ptr<ChatRoom>> rooms_;  ///< 채팅방 이름 -> 채팅방 객체 맵
@@ -325,7 +328,7 @@ public:
      * @param session 등록할 세션의 `shared_ptr`.
      * @details 동기화 보호 하에 `sessions_` 목록에 새 세션을 추가한다.
      */
-    void join(std::shared_ptr<ChatSession> session);
+    void join(SessionPtr session);
 
     /** 
      * @brief 클라이언트 세션 제거.
@@ -333,7 +336,7 @@ public:
      * @details 세션이 참여 중인 모든 방에서 나가도록 처리하고(`leave_all_rooms` 호출),
      *          동기화 보호 하에 `sessions_` 및 `nicknames_` 목록에서 세션을 안전하게 제거한다.
      */
-    void leave(std::shared_ptr<ChatSession> session);
+    void leave(SessionPtr session);
 
     /**
      * @brief 모든 클라이언트에게 메시지 브로드캐스트 (전역).
@@ -342,7 +345,7 @@ public:
      * @details 동기화 보호 하에 `sessions_` 목록의 모든 활성 세션(sender 제외)에 메시지를 전달한다.
      *          내부적으로 `broadcast_impl`을 호출한다.
      */
-    void broadcast(const std::string& message, std::shared_ptr<ChatSession> sender);
+    void broadcast(const std::string& message, SessionPtr sender);
     
     /**
      * @brief 개인 메시지 전송 (구현 필요).
@@ -352,7 +355,7 @@ public:
      * @return 성공 시 true (수신자 존재 및 메시지 전달 성공), 실패 시 false.
      */
     bool send_private_message(const std::string& message, 
-                             std::shared_ptr<ChatSession> sender, 
+                             SessionPtr sender, 
                              const std::string& receiver_nick);
 
     /** 
@@ -364,7 +367,7 @@ public:
      *          결과(성공/실패)를 콜백 함수를 통해 비동기적으로 전달한다.
      */
     void try_register_nickname_async(const std::string& nickname, 
-                                      std::shared_ptr<ChatSession> session, 
+                                      SessionPtr session, 
                                       std::function<void(bool)> handler);
 
     /** 
@@ -380,7 +383,7 @@ public:
      * @param handler 결과를 받을 콜백 함수. `void(std::shared_ptr<ChatSession> session)` 형태.
      * @details Strand 위에서 세션을 찾고 결과를 콜백으로 전달한다.
      */
-    void find_session_by_nickname_async(const std::string& nickname, std::function<void(std::shared_ptr<ChatSession>)> handler);
+    void find_session_by_nickname_async(const std::string& nickname, std::function<void(SessionPtr)> handler);
     
     /**
      * @brief 현재 연결된 모든 사용자(세션)의 닉네임 목록 조회 (비동기).
@@ -396,7 +399,7 @@ public:
      * @param reason 퇴장 사유 (클라이언트에게 전달될 수 있음).
      * @return 성공 시 true, 실패 시 false (권한 부족, 대상 없음 등).
      */
-    bool kick_user(std::shared_ptr<ChatSession> admin, 
+    bool kick_user(SessionPtr admin, 
                   const std::string& target_nick, 
                   const std::string& reason);
     
@@ -409,7 +412,7 @@ public:
      * @details Strand 위에서 방 참여 로직을 수행하고 결과를 콜백으로 전달한다.
      */
     void join_room_async(const std::string& room_name, 
-                         std::shared_ptr<ChatSession> session, 
+                         SessionPtr session, 
                          std::function<void(bool)> handler);
     
     /**
@@ -418,7 +421,7 @@ public:
      * @param session 입장할 세션 (`shared_ptr`).
      * @return 성공 시 true, 실패 시 false.
      */
-    bool join_room(const std::string& room_name, std::shared_ptr<ChatSession> session);
+    bool join_room(const std::string& room_name, SessionPtr session);
     
     /**
      * @brief 현재 참여 중인 채팅방에서 퇴장 (비동기).
@@ -428,7 +431,7 @@ public:
      * @details Strand 위에서 방 퇴장 로직을 수행하고 결과를 콜백으로 전달한다.
      */
     void leave_room_async(const std::string& room_name, 
-                          std::shared_ptr<ChatSession> session, 
+                          SessionPtr session, 
                           std::function<void(bool)> handler);
                           
     /**
@@ -437,7 +440,7 @@ public:
      * @param session 퇴장할 세션 (`shared_ptr`).
      * @return 성공 시 true, 실패 시 false.
      */
-    bool leave_room(const std::string& room_name, std::shared_ptr<ChatSession> session);
+    bool leave_room(const std::string& room_name, SessionPtr session);
 
     /**
      * @brief 특정 세션이 참여 중인 모든 채팅방에서 퇴장시킨다.
@@ -446,14 +449,14 @@ public:
      *          모든 `rooms_`를 순회하며 해당 세션을 제거하고, 방이 비면 방 자체도 제거한다.
      *          각 방의 남은 참여자에게 퇴장 알림을 전송한다.
      */
-    void leave_all_rooms(std::shared_ptr<ChatSession> session);
+    void leave_all_rooms(SessionPtr session);
     
     /**
      * @brief 닉네임으로 활성 세션 찾기 (동기).
      * @param nickname 찾을 닉네임.
      * @return 해당 닉네임을 가진 세션, 없으면 nullptr.
      */
-    std::shared_ptr<ChatSession> find_session_by_nickname(const std::string& nickname);
+    SessionPtr find_session_by_nickname(const std::string& nickname);
     
     /**
      * @brief 현재 연결된 모든 사용자 목록 (동기).
@@ -471,20 +474,20 @@ public:
      */
     bool broadcast_to_room(const std::string& room_name, 
                            const std::string& message, 
-                           std::shared_ptr<ChatSession> sender);
+                           SessionPtr sender);
                          
     // 사용자 인증/등록/수정/삭제 메서드 선언 (구현 필요)
-    bool authenticate_user(const std::string& username, const std::string& password, std::shared_ptr<ChatSession> session);
+    bool authenticate_user(const std::string& username, const std::string& password, SessionPtr session);
     bool register_user(const std::string& username, const std::string& password, bool is_admin = false);
-    bool update_user(const std::string& username, const std::string& new_password, int is_admin, std::shared_ptr<ChatSession> admin_session);
-    bool delete_user(const std::string& username, std::shared_ptr<ChatSession> admin_session);
+    bool update_user(const std::string& username, const std::string& new_password, int is_admin, SessionPtr admin_session);
+    bool delete_user(const std::string& username, SessionPtr admin_session);
     
     // 파일 전송 관련 메서드 선언 (구현 필요)
-    std::string init_file_transfer(const std::string& filename, size_t filesize, std::shared_ptr<ChatSession> sender, const std::string& receiver_nick);
-    bool accept_file_transfer(const std::string& transfer_id, std::shared_ptr<ChatSession> session);
-    bool reject_file_transfer(const std::string& transfer_id, std::shared_ptr<ChatSession> session);
-    bool process_file_data(const std::string& transfer_id, const char* data, size_t length, std::shared_ptr<ChatSession> session);
-    bool complete_file_transfer(const std::string& transfer_id, std::shared_ptr<ChatSession> session);
+    std::string init_file_transfer(const std::string& filename, size_t filesize, SessionPtr sender, const std::string& receiver_nick);
+    bool accept_file_transfer(const std::string& transfer_id, SessionPtr session);
+    bool reject_file_transfer(const std::string& transfer_id, SessionPtr session);
+    bool process_file_data(const std::string& transfer_id, const char* data, size_t length, SessionPtr session);
+    bool complete_file_transfer(const std::string& transfer_id, SessionPtr session);
     
     // 메시지 히스토리 관련 메서드 선언 (구현 필요)
     void set_history_enabled(bool enable);
@@ -523,7 +526,7 @@ private:
     void system_broadcast(const std::string& message); // 전역 시스템 메시지용으로 유지
 
     // Strand 내부에서 호출될 헬퍼 함수들
-    void broadcast_impl(const std::string& message, const std::shared_ptr<ChatSession>& sender);
-    void leave_all_rooms_impl(const std::shared_ptr<ChatSession>& session);
-    void try_register_nickname_impl(const std::string& nickname_copy, std::weak_ptr<ChatSession> weak_session, std::function<void(bool)> handler);
+    void broadcast_impl(const std::string& message, const SessionPtr& sender);
+    void leave_all_rooms_impl(const SessionPtr& session);
+    void try_register_nickname_impl(const std::string& nickname_copy, std::weak_ptr<SessionInterface> weak_session, std::function<void(bool)> handler);
 };

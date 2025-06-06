@@ -1,8 +1,9 @@
 #include "ChatServer.hpp"
 #include "ChatSession.hpp"
-#include "ChatListener.hpp"
+// #include "ChatListener.hpp" // TCP 리스너 제거 - WebSocketListener 사용
 #include "ChatRoom.hpp"
 #include "MessageHistory.hpp"
+#include "WebSocketSession.hpp"
 #include "spdlog/spdlog.h"
 
 #include <memory>
@@ -49,11 +50,7 @@ void ChatServer::run()
         spdlog::error("[ChatServer {}] Cannot run, server is already stopped.", fmt::ptr(this));
         return;
     }
-    if (listener_)
-    {
-        spdlog::error("[ChatServer {}] Cannot run, server already seems to be running (listener exists).", fmt::ptr(this));
-        return;
-    }
+    // TCP 리스너가 제거되었으므로 이 체크는 더 이상 필요하지 않음
 
     spdlog::info("[ChatServer {}] Starting server execution...", fmt::ptr(this));
 
@@ -74,31 +71,10 @@ void ChatServer::run()
 
 bool ChatServer::start_listening()
 {
-    try
-    {
-        auto const address = net::ip::make_address("0.0.0.0");
-        auto self = shared_from_this();
-
-        listener_ = std::make_shared<ChatListener>(ioc_, tcp::endpoint{address, port_}, self);
-        listener_->run();
-        spdlog::info("[ChatServer {}] Listener created and running.", fmt::ptr(this));
-        return true;
-    }
-    catch (const std::system_error &e)
-    {
-        spdlog::error("[ChatServer {}] Failed to create/start listener (system_error): {}", fmt::ptr(this), e.what());
-        return false;
-    }
-    catch (const std::exception &e)
-    {
-        spdlog::error("[ChatServer {}] Exception during listener start: {}", fmt::ptr(this), e.what());
-        return false;
-    }
-    catch (...)
-    {
-        spdlog::error("[ChatServer {}] Unknown exception during listener start", fmt::ptr(this));
-        return false;
-    }
+    // TCP 리스너 제거 - WebSocket 리스너는 main.cpp에서 직접 생성
+    // ChatServer는 이제 세션 관리만 담당
+    spdlog::info("[ChatServer {}] No TCP listener needed. WebSocket listeners will be created externally.", fmt::ptr(this));
+    return true;
 }
 
 void ChatServer::stop()
@@ -109,11 +85,7 @@ void ChatServer::stop()
     }
     spdlog::info("[ChatServer {}] Stopping server...", fmt::ptr(this));
 
-    if (listener_)
-    {
-        listener_.reset();
-        spdlog::info("[ChatServer {}] Listener reset.", fmt::ptr(this));
-    }
+    // TCP listener 제거됨
 
     signals_.cancel();
 
@@ -121,11 +93,6 @@ void ChatServer::stop()
               {
         signals_.cancel();
         spdlog::info("[ChatServer {}] Signals cancelled.", fmt::ptr(this));
-
-        if (listener_) {
-            listener_.reset();
-            spdlog::info("[ChatServer {}] Listener reset.", fmt::ptr(this));
-        }
 
         net::post(strand_, [this]() {
             spdlog::info("[ChatServer {}] Closing all sessions (strand context)...", fmt::ptr(this));
@@ -170,7 +137,7 @@ void ChatServer::do_await_stop()
         });
 }
 
-void ChatServer::join(std::shared_ptr<ChatSession> session)
+void ChatServer::join(SessionPtr session)
 {
     if (!session || stopped_)
         return;
@@ -185,7 +152,7 @@ void ChatServer::join(std::shared_ptr<ChatSession> session)
         broadcast_impl(join_msg, session); });
 }
 
-void ChatServer::leave(std::shared_ptr<ChatSession> session)
+void ChatServer::leave(SessionPtr session)
 {
     if (!session)
         return;
@@ -197,15 +164,11 @@ void ChatServer::leave(std::shared_ptr<ChatSession> session)
     net::dispatch(strand_, [this, self, session, nickname, remote_id]() mutable
                   {
         if (stopped_) return;
-
         leave_all_rooms_impl(session);
-
         if (!nickname.empty() && nickname != remote_id) {
             unregister_nickname(nickname);
         }
-
         size_t erased_count = sessions_.erase(session);
-
         if (erased_count > 0) {
             spdlog::info("[ChatServer {}] Client '{}' ({}) left. Session erased. Total sessions: {}",
                     fmt::ptr(this), nickname, remote_id, sessions_.size());
@@ -214,12 +177,12 @@ void ChatServer::leave(std::shared_ptr<ChatSession> session)
                 broadcast_impl(leave_msg, nullptr);
             }
         } else {
-            spdlog::info("[ChatServer {}] Client '{}' ({}) leave called, but session not found or already removed.",
+            spdlog::warn("[ChatServer {}] Client '{}' ({}) leave called, but session not found.",
                     fmt::ptr(this), nickname, remote_id);
         } });
 }
 
-void ChatServer::broadcast_impl(const std::string &message, const std::shared_ptr<ChatSession> &sender)
+void ChatServer::broadcast_impl(const std::string &message, const SessionPtr &sender)
 {
     spdlog::debug("[ChatServer {}] Broadcasting globally (sender: {}): {}", 
                   fmt::ptr(this), 
@@ -257,7 +220,7 @@ void ChatServer::broadcast_impl(const std::string &message, const std::shared_pt
     }
 }
 
-void ChatServer::broadcast(const std::string &message, std::shared_ptr<ChatSession> sender)
+void ChatServer::broadcast(const std::string &message, SessionPtr sender)
 {
     if (stopped_)
             return;
@@ -273,7 +236,7 @@ void ChatServer::broadcast(const std::string &message, std::shared_ptr<ChatSessi
 
 bool ChatServer::broadcast_to_room(const std::string &room_name,
                                    const std::string &message,
-                                   std::shared_ptr<ChatSession> sender)
+                                   SessionPtr sender)
 {
     if (stopped_)
         return false;
@@ -302,7 +265,7 @@ bool ChatServer::broadcast_to_room(const std::string &room_name,
 }
 
 bool ChatServer::send_private_message(const std::string &message,
-                                      std::shared_ptr<ChatSession> sender,
+                                      SessionPtr sender,
                                       const std::string &receiver_nick)
 {
     if (stopped_ || !sender || receiver_nick.empty() || message.empty())
@@ -312,7 +275,7 @@ bool ChatServer::send_private_message(const std::string &message,
     std::string message_copy = message;
 
     find_session_by_nickname_async(receiver_nick,
-                                   [this, self, sender, sender_nick, receiver_nick, message_copy](std::shared_ptr<ChatSession> receiver_session)
+                                   [this, self, sender, sender_nick, receiver_nick, message_copy](SessionPtr receiver_session)
                                    {
                                        if (stopped_)
                                            return;
@@ -339,7 +302,7 @@ bool ChatServer::send_private_message(const std::string &message,
 }
 
 void ChatServer::try_register_nickname_async(const std::string &nickname,
-                                             std::shared_ptr<ChatSession> session,
+                                             SessionPtr session,
                                              std::function<void(bool)> handler)
 {
     if (stopped_)
@@ -357,18 +320,18 @@ void ChatServer::try_register_nickname_async(const std::string &nickname,
         return;
     }
     std::string nickname_copy = nickname;
-    std::weak_ptr<ChatSession> weak_session = session;
+    std::weak_ptr<SessionInterface> weak_session = session;
     auto self = shared_from_this();
     net::dispatch(strand_, [this, self, nickname_copy, weak_session, handler = std::move(handler)]() mutable
                   { try_register_nickname_impl(nickname_copy, weak_session, std::move(handler)); });
 }
 
 void ChatServer::try_register_nickname_impl(const std::string &nickname_copy,
-                                            std::weak_ptr<ChatSession> weak_session,
+                                            std::weak_ptr<SessionInterface> weak_session,
                                             std::function<void(bool)> handler)
 {
     bool success = false;
-    std::shared_ptr<ChatSession> session = weak_session.lock();
+    SessionPtr session = weak_session.lock();
     if (!session) {
         spdlog::error("[ChatServer {}] Session expired during nickname registration for '{}'", fmt::ptr(this), nickname_copy);
         net::post(ioc_, [handler = std::move(handler)]() { handler(false); });
@@ -418,7 +381,7 @@ void ChatServer::try_register_nickname_impl(const std::string &nickname_copy,
                 }
             }
             // Register the new nickname
-            nicknames_[nickname_copy] = weak_session; // Assignment requires the lock
+            nicknames_[nickname_copy] = session; // Assignment requires the lock
             success = true;
             spdlog::info("[ChatServer {}] Nickname '{}' registered for session {} (strand).", fmt::ptr(this), nickname_copy, fmt::ptr(session.get()));
         }
@@ -426,7 +389,7 @@ void ChatServer::try_register_nickname_impl(const std::string &nickname_copy,
 
     bool final_result = success;
     // Post the result back to the original context (usually io_context)
-    net::post(ioc_, [handler = std::move(handler), final_result]() { handler(final_result); });
+    net::post(session->get_strand(), [handler = std::move(handler), final_result]() { handler(final_result); });
 }
 
 void ChatServer::unregister_nickname(const std::string &nickname)
@@ -445,7 +408,7 @@ void ChatServer::unregister_nickname(const std::string &nickname)
 }
 
 void ChatServer::find_session_by_nickname_async(const std::string &nickname,
-                                                std::function<void(std::shared_ptr<ChatSession>)> handler)
+                                                std::function<void(SessionPtr)> handler)
 {
     if (stopped_) {
         net::post(ioc_, [handler]() { handler(nullptr); });
@@ -453,7 +416,7 @@ void ChatServer::find_session_by_nickname_async(const std::string &nickname,
         }
     auto self = shared_from_this();
     net::dispatch(strand_, [this, self, nickname, handler = std::move(handler)]() mutable {
-        std::shared_ptr<ChatSession> result = nullptr;
+        SessionPtr result = nullptr;
         // Lock the mutex before accessing nicknames_
         {
             std::lock_guard<std::mutex> lock(nicknames_mutex_); 
@@ -498,7 +461,7 @@ void ChatServer::get_user_list_async(std::function<void(std::vector<std::string>
     });
 }
 
-bool ChatServer::join_room(const std::string& room_name, std::shared_ptr<ChatSession> session)
+bool ChatServer::join_room(const std::string& room_name, SessionPtr session)
 {
     if (stopped_ || !session) return false;
     
@@ -564,14 +527,14 @@ bool ChatServer::join_room(const std::string& room_name, std::shared_ptr<ChatSes
         size_t valid_member_count = 0;
         std::string member_list_str;
         
-        for (const auto& member_weak : members)
+        for (const auto& member : members)
         {
-            if (auto member_shared = member_weak.lock())
+            if (member)
             {
                 valid_member_count++;
                 if (!first)
                     member_list_str += ", ";
-                member_list_str += member_shared->nickname() + (member_shared == session ? " (You)" : "");
+                member_list_str += member->nickname() + (member == session ? " (You)" : "");
                 first = false;
             }
         }
@@ -591,7 +554,7 @@ bool ChatServer::join_room(const std::string& room_name, std::shared_ptr<ChatSes
 }
 
 void ChatServer::join_room_async(const std::string& room_name,
-                                 std::shared_ptr<ChatSession> session,
+                                 SessionPtr session,
                                  std::function<void(bool)> handler)
 {
     if (stopped_)
@@ -620,7 +583,7 @@ void ChatServer::join_room_async(const std::string& room_name,
     });
 }
 
-bool ChatServer::leave_room(const std::string& room_name, std::shared_ptr<ChatSession> session)
+bool ChatServer::leave_room(const std::string& room_name, SessionPtr session)
 {
     if (stopped_ || !session) return false;
     
@@ -661,7 +624,7 @@ bool ChatServer::leave_room(const std::string& room_name, std::shared_ptr<ChatSe
 }
 
 void ChatServer::leave_room_async(const std::string& room_name,
-                                 std::shared_ptr<ChatSession> session,
+                                 SessionPtr session,
                                  std::function<void(bool)> handler)
 {
     if (stopped_)
@@ -685,7 +648,7 @@ void ChatServer::leave_room_async(const std::string& room_name,
     });
 }
 
-void ChatServer::leave_all_rooms_impl(const std::shared_ptr<ChatSession>& session)
+void ChatServer::leave_all_rooms_impl(const SessionPtr& session)
 {
     if (!session) return;
     
@@ -782,5 +745,5 @@ void UserAccount::update_login_info(const std::string &ip, const std::string &ti
 }
 
 FileTransferInfo::FileTransferInfo(const std::string &id, const std::string &filename, size_t filesize,
-                                   std::shared_ptr<ChatSession> sender, std::shared_ptr<ChatSession> receiver)
+                                   std::shared_ptr<SessionInterface> sender, std::shared_ptr<SessionInterface> receiver)
     : id_(id), filename_(filename), filesize_(filesize), sender_(sender), receiver_(receiver) {}

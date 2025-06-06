@@ -27,7 +27,7 @@ namespace beast = boost::beast;
 //------------------------------------------------------------------------------
 
 ChatSession::ChatSession(tcp::socket socket, std::shared_ptr<ChatServer> server)
-    : socket_(std::move(socket)), server_(server), strand_(socket_.get_executor()), stopped_(false), writing_flag_(false)
+    : socket_(std::move(socket)), server_(server), strand_(net::make_strand(socket_.get_executor())), stopped_(false), writing_flag_(false)
 {
     try {
         remote_id_ = socket_.remote_endpoint().address().to_string() + ":" +
@@ -68,7 +68,7 @@ void ChatSession::start()
     deliver(fmt::format("* 사용자 '{} '님이 입장했습니다.\r\n", nickname_)); // Use current nickname (initially remote_id_)
 
     // Start reading asynchronously
-    net::dispatch(strand_, [self = shared_from_this()]() {
+    net::dispatch(strand_, [self = shared_from_this_chat()]() {
         if (!self->stopped_.load()) {
             self->do_read();
         }

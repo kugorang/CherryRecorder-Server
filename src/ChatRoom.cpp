@@ -6,99 +6,65 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <algorithm> // for std::remove
 
 //------------------------------------------------------------------------------
 // ChatRoom Implementation
 //------------------------------------------------------------------------------
-ChatRoom::ChatRoom(const std::string &name) : name_(name)
+ChatRoom::ChatRoom(const std::string& name)
+    : name_(name), max_participants_(100) // 예시로 최대 인원 100명
 {
-    spdlog::info("[ChatRoom] Room '{}' created.", name);
+    spdlog::info("ChatRoom '{}' created.", name_);
 }
 
-ChatRoom::~ChatRoom()
+void ChatRoom::join(SessionPtr participant)
 {
-    spdlog::info("[ChatRoom] Room '{}' destroyed.", name_);
+    if (participants_.size() >= max_participants_) {
+        participant->deliver("Error: 방 '" + name_ + "'이(가) 꽉 찼습니다.\r\n");
+        return;
+    }
+    participants_.insert(participant);
+    participant->set_current_room(name_); // 세션에 현재 방 이름 설정
+    
+    std::string join_msg = "* " + participant->nickname() + "님이 '" + name_ + "' 방에 입장했습니다.\r\n";
+    broadcast(join_msg, nullptr); // 모두에게 알림 (입장한 사람 포함)
 }
 
-void ChatRoom::add_participant(std::shared_ptr<ChatSession> participant)
+void ChatRoom::leave(SessionPtr participant)
 {
-    if (!participant) return; // Avoid inserting null weak_ptr
-    std::lock_guard<std::mutex> lock(mutex_);
-    // Insert a weak_ptr created from the shared_ptr
-    auto result = sessions_.insert(std::weak_ptr(participant));
-    if (result.second)
-    {
-        spdlog::debug("ChatRoom[{}]: Participant added (weak_ptr)", name_);
+    size_t erased_count = participants_.erase(participant);
+    if (erased_count > 0) {
+        participant->set_current_room(""); // 세션의 현재 방 이름 초기화
+        
+        std::string leave_msg = "* " + participant->nickname() + "님이 '" + name_ + "' 방에서 나갔습니다.\r\n";
+        broadcast(leave_msg, nullptr);
     }
 }
 
-void ChatRoom::remove_participant(std::shared_ptr<ChatSession> participant)
+void ChatRoom::broadcast(const std::string& message, SessionPtr sender)
 {
-    if (!participant) return;
-    std::lock_guard<std::mutex> lock(mutex_);
-    size_t initial_size = sessions_.size();
-
-    // Use std::erase_if to remove the participant or any expired weak_ptrs
-    // Capture 'this' to allow access to member variable 'name_' inside the lambda
-    size_t num_erased = std::erase_if(sessions_, 
-        [this, &participant](const std::weak_ptr<ChatSession>& weak_session) {
-            if (weak_session.expired()) {
-                // Access name_ via 'this' which is captured
-                spdlog::warn("ChatRoom[{}]: Removing expired participant during erase_if.", this->name_);
-                return true; // Remove expired pointers
-            } else if (auto locked_session = weak_session.lock()) {
-                return locked_session == participant; // Remove if it matches the target participant
-            }
-            return false; // Should not happen if not expired, but keep for safety
-    });
-
-    if (num_erased > 0)
-    {
-        spdlog::debug("ChatRoom[{}]: erase_if removed {} elements (participant or expired). Remaining: {}", 
-                      name_, num_erased, sessions_.size());
-    } else {
-        spdlog::warn("ChatRoom[{}]: remove_participant called, but participant not found and no expired sessions removed.", name_);
-    }
-}
-
-bool ChatRoom::empty() const
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    // Consider cleaning up expired weak_ptrs here too, or periodically
-    return sessions_.empty(); // Basic check, might include expired pointers
-}
-
-void ChatRoom::broadcast(const std::string& message, const std::shared_ptr<ChatSession>& sender)
-{
-    spdlog::debug("[ChatRoom {}] Broadcasting message (sender: {}): {}", 
-                  this->name_, 
-                  sender ? fmt::ptr(sender.get()) : "system", 
-                  message);
-
-    std::vector<std::weak_ptr<ChatSession>> sessions_to_broadcast;
-    {
-        std::lock_guard<std::mutex> lock(this->mutex_);
-        sessions_to_broadcast.assign(this->sessions_.begin(), this->sessions_.end());
-    }
-
-    for (const auto& session_weak : sessions_to_broadcast)
-    {
-        if (auto session = session_weak.lock())
-        {
-            // Check if the current session is NOT the sender
-            if (session != sender) {
-                session->deliver(message);
-                spdlog::debug("[ChatRoom {}] Delivered message to session: {:p}", this->name_, static_cast<void*>(session.get()));
-            } else {
-                spdlog::debug("[ChatRoom {}] Skipping delivery to sender: {:p}", this->name_, static_cast<void*>(session.get()));
-            }
-        }
-        else
-        {
-            spdlog::warn("[ChatRoom {}] Found an expired session weak_ptr during broadcast.", this->name_);
+    std::string formatted_message = "[" + name_ + "] " + message + "\r\n";
+    
+    for (const auto& participant : participants_) {
+        if (participant != sender) { // 메시지를 보낸 사람 제외
+            participant->deliver(formatted_message);
         }
     }
-    spdlog::debug("[ChatRoom {}] Broadcast finished.", this->name_);
+}
+
+std::vector<std::string> ChatRoom::get_participant_nicknames() const
+{
+    std::vector<std::string> nicknames;
+    nicknames.reserve(participants_.size());
+    for (const auto& p : participants_) {
+        nicknames.push_back(p->nickname());
+    }
+    return nicknames;
+}
+
+bool ChatRoom::is_full() const
+{
+    return participants_.size() >= max_participants_;
 }
 
 // sessions() 함수는 헤더에 이미 인라인으로 정의되어 있으므로 여기서는 구현하지 않음

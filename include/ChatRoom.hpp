@@ -2,40 +2,30 @@
 #pragma once
 
 #include <string>
+#include <memory>
 #include <set>
-#include <memory> // for shared_ptr and weak_ptr
-#include <mutex>
 #include <vector>
+#include "SessionInterface.hpp" // ChatSession.hpp 대신 SessionInterface.hpp 포함
 
-// Forward declaration
-class ChatSession;
-
-/**
- * @class ChatRoom
- * @brief 채팅방을 관리하는 클래스
- */
 class ChatRoom {
-public:
-    explicit ChatRoom(const std::string& name);
-    ~ChatRoom();
-    
-    void broadcast(const std::string& message, const std::shared_ptr<ChatSession>& sender = nullptr);
-    
-    std::string name() const {
-        return name_;
-    }
-
-    void add_participant(std::shared_ptr<ChatSession> participant);
-    void remove_participant(std::shared_ptr<ChatSession> participant);
-    bool empty() const;
-
-    std::set<std::weak_ptr<ChatSession>, std::owner_less<std::weak_ptr<ChatSession>>> sessions() const {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return sessions_;
-    }
-
 private:
     std::string name_;
-    mutable std::mutex mutex_;
-    std::set<std::weak_ptr<ChatSession>, std::owner_less<std::weak_ptr<ChatSession>>> sessions_;
+    std::set<SessionPtr> participants_; // SessionPtr 사용
+    size_t max_participants_;
+    // ChatServer에 대한 참조가 필요하다면 추가
+    // ChatServer& server_; 
+
+public:
+    explicit ChatRoom(const std::string& name);
+    void join(SessionPtr participant);
+    void leave(SessionPtr participant);
+    void add_participant(SessionPtr participant) { join(participant); }  // alias for join
+    void remove_participant(SessionPtr participant) { leave(participant); } // alias for leave
+    void broadcast(const std::string& message, SessionPtr sender);
+    std::vector<std::string> get_participant_nicknames() const;
+    bool is_full() const;
+    bool empty() const { return participants_.empty(); }
+    const std::string& name() const { return name_; }
+    size_t participant_count() const { return participants_.size(); }
+    const std::set<SessionPtr>& sessions() const { return participants_; }
 };

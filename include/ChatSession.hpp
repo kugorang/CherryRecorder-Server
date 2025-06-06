@@ -10,6 +10,7 @@
 #include <boost/asio/strand.hpp>
 #include <boost/asio/streambuf.hpp>
 #include <boost/beast/core/error.hpp> // For beast::error_code
+#include "SessionInterface.hpp"
 
 // Forward declarations
 class ChatServer;
@@ -17,13 +18,12 @@ namespace net = boost::asio;
 using tcp = net::ip::tcp;
 namespace beast = boost::beast;
 
-class ChatSession : public std::enable_shared_from_this<ChatSession> {
+class ChatSession : public SessionInterface, public std::enable_shared_from_this<ChatSession> {
     friend class ChatServer; // Allow ChatServer access if needed (e.g., socket)
 private:
     tcp::socket socket_;
     std::shared_ptr<ChatServer> server_;
-    using socket_executor_type = decltype(std::declval<tcp::socket&>().get_executor());
-    net::strand<socket_executor_type> strand_;
+    net::strand<net::any_io_executor> strand_;
     boost::asio::streambuf read_buffer_;
     std::deque<std::string> write_msgs_;
     bool writing_flag_ = false;
@@ -31,23 +31,33 @@ private:
     std::string nickname_;
     std::string current_room_;
     std::atomic<bool> stopped_{false};
+    bool authenticated_ = false; // SessionInterface requires this
 
 public:
     explicit ChatSession(tcp::socket socket, std::shared_ptr<ChatServer> server);
     ~ChatSession();
 
     void start();
-    void stop_session();
-    void deliver(const std::string& msg);
-
-    const std::string& nickname() const;
-    const std::string& remote_id() const;
-    const std::string& current_room() const;
-    void set_current_room(const std::string& room_name);
-
-    // Allow ChatServer to get the strand for dispatching stop_session
-    using strand_type = net::strand<socket_executor_type>;
-    strand_type& get_strand() { return strand_; }
+    
+    // SessionInterface implementation
+    void stop_session() override;
+    void deliver(const std::string& msg) override;
+    const std::string& nickname() const override;
+    const std::string& remote_id() const override;
+    net::strand<net::any_io_executor>& get_strand() override { return strand_; }
+    bool is_authenticated() const override { return authenticated_; }
+    void set_nickname(const std::string& nick) override { nickname_ = nick; }
+    void set_authenticated(bool auth) override { authenticated_ = auth; }
+    const std::string& current_room() const override;
+    void set_current_room(const std::string& room_name) override;
+    std::shared_ptr<SessionInterface> shared_from_this() override {
+        return shared_from_this();
+    }
+    
+    // Get shared_ptr to this ChatSession
+    std::shared_ptr<ChatSession> shared_from_this_chat() {
+        return std::static_pointer_cast<ChatSession>(shared_from_this());
+    }
 
 private:
     void process_command(const std::string& command_line);
