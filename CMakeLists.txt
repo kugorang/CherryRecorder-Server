@@ -50,9 +50,10 @@ if(WIN32)
   message(STATUS "Targeting Windows 10 or later (_WIN32_WINNT=0x0A00)")
 
   if(MSVC)
-    # MSVC 컴파일러 UTF-8 소스 코드 처리 옵션
-    add_compile_options(/utf-8)
-    message(STATUS "MSVC: Added /utf-8 compile option.")
+    # MSVC 컴파일러 UTF-8 소스 코드 처리 옵션 및 C++ 표준 명시
+    # CMAKE_CXX_STANDARD 설정만으로는 부족할 경우를 대비해 명시적으로 플래그 추가
+    add_compile_options(/utf-8 /std:c++20 /Zc:__cplusplus)
+    message(STATUS "MSVC: Added /utf-8, /std:c++20, /Zc:__cplusplus compile options.")
 
     # MSVC Hot Reload (Edit and Continue) 지원 설정
     if(POLICY CMP0141)
