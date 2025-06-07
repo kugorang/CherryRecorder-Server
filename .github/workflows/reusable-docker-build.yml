@@ -118,6 +118,9 @@ jobs:
           echo "dh_repo_base=$DH_REPO_BASE_INPUT" >> $GITHUB_OUTPUT
         shell: bash
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        
       - name: Set up Docker Buildx
         id: buildx # ID는 그대로 유지하거나 변경해도 무방
         uses: docker/setup-buildx-action@v3
@@ -186,6 +189,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           # GHCR에 푸시할 태그 지정 (SHA 태그)
           tags: ${{ steps.set-names.outputs.ghcr_image_sha }}
           push: true # 항상 GHCR에는 푸시 (캐싱 및 후속 작업 기반)
