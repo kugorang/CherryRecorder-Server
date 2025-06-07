@@ -279,16 +279,15 @@ if(BUILD_TESTING)
 
     # 테스트 실행 파일 정의
     add_executable(CherryRecorder-Tests
-        tests/main.test.cpp
-        tests/ChatRoom.test.cpp
-        tests/ChatServer.test.cpp
-        tests/MessageHistory.test.cpp
-        tests/TestUtils.cpp
+        tests/test_main.cpp
+        tests/test_chat_server.cpp
+        tests/test_http_server.cpp
     )
 
     # 테스트 실행 파일에 필요한 라이브러리 링크
     target_link_libraries(CherryRecorder-Tests PRIVATE
-        ChatLib
+        ChatServerLib
+        HttpServerLib
         gmock_main # gmock과 gtest를 모두 포함하며 main 함수 제공
         GTest::gtest
         GTest::gmock

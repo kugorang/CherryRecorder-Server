@@ -57,9 +57,8 @@ name: CI/CD - CherryRecorder Server Orchestrator
 #                          (reusable-deploy-aws -> Task Definition 환경 변수 및 포트 매핑)
 # HTTPS_PORT_VALUE:        컨테이너 내부에서 HTTPS 서버가 리슨할 포트 번호 (기본값: 58080).
 #                          (reusable-deploy-aws -> Task Definition 환경 변수 및 포트 매핑)
-# WEBSOCKET_PORT_VALUE:    컨테이너 내부에서 WebSocket Chat 서버가 리슨할 포트 번호 (기본값: 33334).
-#                          (reusable-deploy-aws -> Task Definition 환경 변수 및 포트 매핑,
-#                           reusable-connection-check -> 'websocket_port' 입력으로 사용)
+# WEBSOCKET_PORT_VALUE:    컨테이너 내부에서 WebSocket(WS) Chat 서버가 리슨할 포트 번호 (기본값: 33334, 개발용).
+# WSS_PORT_VALUE:          컨테이너 내부에서 Secure WebSocket(WSS) Chat 서버가 리슨할 포트 번호 (기본값: 33335, 프로덕션용).
 #
 # [애플리케이션 내부 설정 (선택적 Variables)]
 # - 아래 변수들은 필요에 따라 GitHub Variables로 정의하고, reusable-deploy-aws 워크플로우의
@@ -220,7 +219,8 @@ jobs:
       health_check_port_value: ${{ vars.HEALTH_CHECK_PORT_VALUE }}
       http_port_value: ${{ vars.HTTP_PORT_VALUE }}
       https_port_value: ${{ vars.HTTPS_PORT_VALUE }}
-      websocket_port_value: ${{ vars.WEBSOCKET_PORT_VALUE }}
+      # 프로덕션 배포이므로 WSS 포트를 사용하도록 명시
+      websocket_port_value: ${{ vars.WSS_PORT_VALUE }}
     secrets:
       # AWS OIDC 역할 ARN
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
@@ -241,7 +241,8 @@ jobs:
       server_address: ${{ vars.SERVER_ADDRESS }}
       health_check_port: ${{ vars.HEALTH_CHECK_PORT_VALUE }} # HTTP 포트
       http_port: ${{ vars.HTTP_PORT_VALUE }}
-      websocket_port: ${{ vars.WEBSOCKET_PORT_VALUE }}
+      # 프로덕션 배포이므로 WSS 포트를 사용하는지 확인
+      websocket_port: ${{ vars.WSS_PORT_VALUE }}
       # 아래는 선택적 입력 (필요 시 vars에서 가져오거나 직접 값 지정)
       # max_attempts: '6'
       # retry_delay_seconds: '10'

@@ -24,10 +24,10 @@
           "name": "https"
         },
         {
-          "containerPort": 33334,
+          "containerPort": $WEBSOCKET_PORT_VALUE,
           "hostPort": 0,
           "protocol": "tcp",
-          "name": "websocket-chat"
+          "name": "websocket"
         }
       ],
       "environment": [
@@ -38,6 +38,10 @@
         {
           "name": "HTTPS_PORT",
           "value": "58080"
+        },
+        {
+          "name": "WEBSOCKET_PORT",
+          "value": "$WEBSOCKET_PORT_VALUE"
         },
         {
           "name": "GOOGLE_MAPS_API_KEY",
