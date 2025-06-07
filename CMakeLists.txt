@@ -288,7 +288,7 @@ if(BUILD_TESTING)
     target_link_libraries(CherryRecorder-Tests PRIVATE
         ChatServerLib
         HttpServerLib
-        gmock_main # gmock과 gtest를 모두 포함하며 main 함수 제공
+        GTest::gmock_main # gmock과 gtest를 모두 포함하며 main 함수 제공
         GTest::gtest
         GTest::gmock
     )
