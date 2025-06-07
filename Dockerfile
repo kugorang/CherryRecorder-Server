@@ -38,7 +38,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # --- STEP 1.5: 최신 CMake 설치 ---
 ARG CMAKE_VERSION=3.30.1
-RUN wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.sh \
+RUN \
+    # TARGETARCH 변수는 buildx에 의해 자동으로 설정됨 (예: amd64, arm64)
+    # CMake 다운로드 페이지의 아키텍처 이름 (x86_64, aarch64)에 맞게 매핑
+    case ${TARGETARCH} in \
+        "amd64") CMAKE_ARCH="x86_64" ;; \
+        "arm64") CMAKE_ARCH="aarch64" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}"; exit 1 ;; \
+    esac \
+    && wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.sh \
     -q -O /tmp/cmake-install.sh \
     && chmod +x /tmp/cmake-install.sh \
     && /tmp/cmake-install.sh --skip-license --prefix=/usr/local \
