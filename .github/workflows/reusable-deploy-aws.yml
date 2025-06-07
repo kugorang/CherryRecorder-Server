@@ -96,43 +96,54 @@ jobs:
           # 템플릿 렌더링을 위한 변수 준비
           # GOOGLE_MAPS_API_KEY secret 값이 비어있을 경우 빈 문자열로 처리
           GOOGLE_MAPS_API_KEY_VALUE="${{ secrets.GOOGLE_MAPS_API_KEY || '' }}"
+          
+          # 포트 값들이 비어있을 경우 기본값 설정
+          HTTP_PORT="${{ inputs.http_port_value }}"
+          HTTPS_PORT="${{ inputs.https_port_value }}"
+          WEBSOCKET_PORT="${{ inputs.websocket_port_value }}"
+          
+          # 포트 값이 비어있으면 기본값 사용
+          HTTP_PORT="${HTTP_PORT:-8080}"
+          HTTPS_PORT="${HTTPS_PORT:-58080}"
+          WEBSOCKET_PORT="${WEBSOCKET_PORT:-33335}"
 
-          # jq 명령어를 사용하여 task-definition.json.template 파일 렌더링
-          # --argjson 대신 --arg를 사용하여 모든 입력을 문자열로 안전하게 전달
-          # jq 스크립트 내부에서 tonumber와 기본값 처리를 통해 안정성 확보
-          jq --arg health_port "${{ inputs.health_check_port_value }}" \
-             --arg http_port "${{ inputs.http_port_value }}" \
-             --arg https_port "${{ inputs.https_port_value }}" \
-             --arg websocket_port "${{ inputs.websocket_port_value }}" \
-             --arg image "${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}" \
-             --arg family "${{ inputs.ecs_task_def_family }}" \
-             --arg execution_role_arn "${{ secrets.task_execution_role_arn }}" \
-             --arg container_name "${{ inputs.container_name }}" \
-             --arg aws_region "${{ inputs.aws_region }}" \
-             --arg google_maps_api_key "$GOOGLE_MAPS_API_KEY_VALUE" \
+          # 먼저 템플릿의 변수들을 sed로 치환하여 유효한 JSON 생성
+          sed -e "s/\$FAMILY/${{ inputs.ecs_task_def_family }}/g" \
+              -e "s/\$EXECUTION_ROLE_ARN/${{ secrets.task_execution_role_arn }}/g" \
+              -e "s/\$CONTAINER_NAME/${{ inputs.container_name }}/g" \
+              -e "s/\$WEBSOCKET_PORT_VALUE/${WEBSOCKET_PORT}/g" \
+              -e "s/\${GOOGLE_MAPS_API_KEY}/${GOOGLE_MAPS_API_KEY_VALUE}/g" \
+              -e "s/\$AWS_REGION/${{ inputs.aws_region }}/g" \
+              ${{ inputs.task_definition_template_path }} > temp_task_def.json
+
+          # jq를 사용하여 추가 수정 (이미지 업데이트, 포트 매핑 덮어쓰기 등)
+          jq --arg image "${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}" \
+             --arg http_port "${HTTP_PORT}" \
+             --arg https_port "${HTTPS_PORT}" \
+             --arg websocket_port "${WEBSOCKET_PORT}" \
+             --arg google_maps_api_key "${GOOGLE_MAPS_API_KEY_VALUE}" \
              '.
-              | .family = $family
-              | .executionRoleArn = $execution_role_arn
-              | .containerDefinitions[0].name = $container_name
               | .containerDefinitions[0].image = $image
               | .containerDefinitions[0].portMappings = [
-                 { "containerPort": (if $http_port | test("^\\d+$") then ($http_port | tonumber) else 8080 end), "hostPort": 0, "protocol": "tcp", "name": "http" },
-                 { "containerPort": (if $https_port | test("^\\d+$") then ($https_port | tonumber) else 58080 end), "hostPort": 0, "protocol": "tcp", "name": "https" },
-                 { "containerPort": (if $websocket_port | test("^\\d+$") then ($websocket_port | tonumber) else 33335 end), "hostPort": 0, "protocol": "tcp", "name": "websocket" }
+                 { "containerPort": ($http_port | tonumber), "hostPort": 0, "protocol": "tcp", "name": "http" },
+                 { "containerPort": ($https_port | tonumber), "hostPort": 0, "protocol": "tcp", "name": "https" },
+                 { "containerPort": ($websocket_port | tonumber), "hostPort": 0, "protocol": "tcp", "name": "websocket" }
                ]
-              | .containerDefinitions[0].environment = [
-                 { "name": "HTTP_PORT", "value": (if $http_port | test("^\\d+$") then $http_port else "8080" end) },
-                 { "name": "HTTPS_PORT", "value": (if $https_port | test("^\\d+$") then $https_port else "58080" end) },
-                 { "name": "WEBSOCKET_PORT", "value": (if $websocket_port | test("^\\d+$") then $websocket_port else "33335" end) },
-                 { "name": "GOOGLE_MAPS_API_KEY", "value": $google_maps_api_key }
-               ]
-              | .containerDefinitions[0].logConfiguration.options."awslogs-group" = "/ecs/" + $family
-              | .containerDefinitions[0].logConfiguration.options."awslogs-region" = $aws_region
+              | .containerDefinitions[0].environment = (.containerDefinitions[0].environment | map(
+                 if .name == "HTTP_PORT" then .value = $http_port
+                 elif .name == "HTTPS_PORT" then .value = $https_port
+                 elif .name == "WEBSOCKET_PORT" then .value = $websocket_port
+                 elif .name == "GOOGLE_MAPS_API_KEY" then .value = $google_maps_api_key
+                 else . end
+               ))
               | .containerDefinitions[0].healthCheck.command = [
                  "CMD-SHELL",
-                 "curl -f http://localhost:" + (if $http_port | test("^\\d+$") then $http_port else "8080" end) + "/health || exit 1"
+                 "curl -f http://localhost:" + $http_port + "/health || exit 1"
                ]
-             ' ${{ inputs.task_definition_template_path }} > rendered.json
+             ' temp_task_def.json > rendered.json
+
+          # 임시 파일 삭제
+          rm temp_task_def.json
 
           echo "Rendered Task Definition:"
           cat rendered.json # 렌더링 결과 확인용 로그
