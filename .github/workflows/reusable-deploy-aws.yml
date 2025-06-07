@@ -108,12 +108,13 @@ jobs:
           WEBSOCKET_PORT="${WEBSOCKET_PORT:-33335}"
 
           # 먼저 템플릿의 변수들을 sed로 치환하여 유효한 JSON 생성
-          sed -e "s/\$FAMILY/${{ inputs.ecs_task_def_family }}/g" \
-              -e "s/\$EXECUTION_ROLE_ARN/${{ secrets.task_execution_role_arn }}/g" \
-              -e "s/\$CONTAINER_NAME/${{ inputs.container_name }}/g" \
-              -e "s/\$WEBSOCKET_PORT_VALUE/${WEBSOCKET_PORT}/g" \
-              -e "s/\${GOOGLE_MAPS_API_KEY}/${GOOGLE_MAPS_API_KEY_VALUE}/g" \
-              -e "s/\$AWS_REGION/${{ inputs.aws_region }}/g" \
+          # sed 구분자로 | 사용 (ARN 등에 포함된 / 문자와의 충돌 방지)
+          sed -e "s|\$FAMILY|${{ inputs.ecs_task_def_family }}|g" \
+              -e "s|\$EXECUTION_ROLE_ARN|${{ secrets.task_execution_role_arn }}|g" \
+              -e "s|\$CONTAINER_NAME|${{ inputs.container_name }}|g" \
+              -e "s|\$WEBSOCKET_PORT_VALUE|${WEBSOCKET_PORT}|g" \
+              -e "s|\${GOOGLE_MAPS_API_KEY}|${GOOGLE_MAPS_API_KEY_VALUE}|g" \
+              -e "s|\$AWS_REGION|${{ inputs.aws_region }}|g" \
               ${{ inputs.task_definition_template_path }} > temp_task_def.json
 
           # jq를 사용하여 추가 수정 (이미지 업데이트, 포트 매핑 덮어쓰기 등)
