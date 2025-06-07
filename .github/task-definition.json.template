@@ -7,8 +7,8 @@
     {
       "name": "$CONTAINER_NAME",
       "image": "placeholder",
-      "cpu": 768,
-      "memory": 768,
+      "cpu": 400,
+      "memory": 400,
       "essential": true,
       "portMappings": [
         {
@@ -18,13 +18,7 @@
           "name": "http"
         },
         {
-          "containerPort": 58080,
-          "hostPort": 0,
-          "protocol": "tcp",
-          "name": "https"
-        },
-        {
-          "containerPort": $WEBSOCKET_PORT_VALUE,
+          "containerPort": 33334,
           "hostPort": 0,
           "protocol": "tcp",
           "name": "websocket"
@@ -36,12 +30,8 @@
           "value": "8080"
         },
         {
-          "name": "HTTPS_PORT",
-          "value": "58080"
-        },
-        {
           "name": "WEBSOCKET_PORT",
-          "value": "$WEBSOCKET_PORT_VALUE"
+          "value": "33334"
         },
         {
           "name": "GOOGLE_MAPS_API_KEY",

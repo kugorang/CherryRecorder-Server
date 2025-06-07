@@ -99,20 +99,16 @@ jobs:
           
           # 포트 값들이 비어있을 경우 기본값 설정
           HTTP_PORT="${{ inputs.http_port_value }}"
-          HTTPS_PORT="${{ inputs.https_port_value }}"
-          WEBSOCKET_PORT="${{ inputs.websocket_port_value }}"
+          WEBSOCKET_PORT="33334"  # 고정값 사용
           
-          # 포트 값이 비어있으면 기본값 사용
+          # HTTP 포트 값이 비어있으면 기본값 사용
           HTTP_PORT="${HTTP_PORT:-8080}"
-          HTTPS_PORT="${HTTPS_PORT:-58080}"
-          WEBSOCKET_PORT="${WEBSOCKET_PORT:-33335}"
 
           # 먼저 템플릿의 변수들을 sed로 치환하여 유효한 JSON 생성
           # sed 구분자로 | 사용 (ARN 등에 포함된 / 문자와의 충돌 방지)
           sed -e "s|\$FAMILY|${{ inputs.ecs_task_def_family }}|g" \
               -e "s|\$EXECUTION_ROLE_ARN|${{ secrets.task_execution_role_arn }}|g" \
               -e "s|\$CONTAINER_NAME|${{ inputs.container_name }}|g" \
-              -e "s|\$WEBSOCKET_PORT_VALUE|${WEBSOCKET_PORT}|g" \
               -e "s|\${GOOGLE_MAPS_API_KEY}|${GOOGLE_MAPS_API_KEY_VALUE}|g" \
               -e "s|\$AWS_REGION|${{ inputs.aws_region }}|g" \
               ${{ inputs.task_definition_template_path }} > temp_task_def.json
@@ -120,19 +116,16 @@ jobs:
           # jq를 사용하여 추가 수정 (이미지 업데이트, 포트 매핑 덮어쓰기 등)
           jq --arg image "${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}" \
              --arg http_port "${HTTP_PORT}" \
-             --arg https_port "${HTTPS_PORT}" \
              --arg websocket_port "${WEBSOCKET_PORT}" \
              --arg google_maps_api_key "${GOOGLE_MAPS_API_KEY_VALUE}" \
              '.
               | .containerDefinitions[0].image = $image
               | .containerDefinitions[0].portMappings = [
                  { "containerPort": ($http_port | tonumber), "hostPort": 0, "protocol": "tcp", "name": "http" },
-                 { "containerPort": ($https_port | tonumber), "hostPort": 0, "protocol": "tcp", "name": "https" },
                  { "containerPort": ($websocket_port | tonumber), "hostPort": 0, "protocol": "tcp", "name": "websocket" }
                ]
               | .containerDefinitions[0].environment = (.containerDefinitions[0].environment | map(
                  if .name == "HTTP_PORT" then .value = $http_port
-                 elif .name == "HTTPS_PORT" then .value = $https_port
                  elif .name == "WEBSOCKET_PORT" then .value = $websocket_port
                  elif .name == "GOOGLE_MAPS_API_KEY" then .value = $google_maps_api_key
                  else . end
@@ -162,6 +155,62 @@ jobs:
       # 5. ECS 서비스 업데이트
       - name: Update ECS service
         run: |
-          echo "Updating service ${{ inputs.ecs_service_name }} in cluster ${{ inputs.ecs_cluster_name }} with task definition ${{ steps.register-task.outputs.task_def_arn }}"
-          aws ecs update-service --cluster ${{ inputs.ecs_cluster_name }} --service ${{ inputs.ecs_service_name }} --task-definition ${{ steps.register-task.outputs.task_def_arn }} --force-new-deployment
-          echo "Service update initiated."
+          echo "Checking if service ${{ inputs.ecs_service_name }} exists in cluster ${{ inputs.ecs_cluster_name }}..."
+          
+          # 서비스 존재 여부 확인
+          if aws ecs describe-services --cluster ${{ inputs.ecs_cluster_name }} --services ${{ inputs.ecs_service_name }} --query 'services[0].status' --output text 2>/dev/null | grep -q "ACTIVE"; then
+            echo "Service exists. Attempting to update..."
+            
+            # 서비스 업데이트 시도
+            if ! aws ecs update-service \
+              --cluster ${{ inputs.ecs_cluster_name }} \
+              --service ${{ inputs.ecs_service_name }} \
+              --task-definition ${{ steps.register-task.outputs.task_def_arn }} \
+              --force-new-deployment 2>&1 | tee update_result.txt; then
+              
+              # 에러가 포트 관련인지 확인
+              if grep -q "container port" update_result.txt; then
+                echo "Port configuration mismatch detected. Recreating service..."
+                
+                # 서비스 삭제
+                echo "Deleting existing service..."
+                aws ecs update-service \
+                  --cluster ${{ inputs.ecs_cluster_name }} \
+                  --service ${{ inputs.ecs_service_name }} \
+                  --desired-count 0
+                
+                aws ecs delete-service \
+                  --cluster ${{ inputs.ecs_cluster_name }} \
+                  --service ${{ inputs.ecs_service_name }}
+                
+                # 서비스가 완전히 삭제될 때까지 대기
+                echo "Waiting for service deletion..."
+                aws ecs wait services-inactive \
+                  --cluster ${{ inputs.ecs_cluster_name }} \
+                  --services ${{ inputs.ecs_service_name }} || true
+                
+                # 새 서비스 생성
+                echo "Creating new service with updated configuration..."
+                aws ecs create-service \
+                  --cluster ${{ inputs.ecs_cluster_name }} \
+                  --service-name ${{ inputs.ecs_service_name }} \
+                  --task-definition ${{ steps.register-task.outputs.task_def_arn }} \
+                  --desired-count 1 \
+                  --deployment-configuration "maximumPercent=200,minimumHealthyPercent=100"
+              else
+                # 다른 에러인 경우 실패
+                echo "Service update failed with non-port related error"
+                exit 1
+              fi
+            fi
+          else
+            echo "Service does not exist. Creating new service..."
+            aws ecs create-service \
+              --cluster ${{ inputs.ecs_cluster_name }} \
+              --service-name ${{ inputs.ecs_service_name }} \
+              --task-definition ${{ steps.register-task.outputs.task_def_arn }} \
+              --desired-count 1 \
+              --deployment-configuration "maximumPercent=200,minimumHealthyPercent=100"
+          fi
+          
+          echo "Service update/creation completed."
