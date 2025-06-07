@@ -93,13 +93,17 @@ jobs:
       - name: Render task definition template
         id: render-task-definition
         run: |
+          # 템플릿 렌더링을 위한 변수 준비
           # GOOGLE_MAPS_API_KEY secret 값이 비어있을 경우 빈 문자열로 처리
-          GOOGLE_MAPS_API_KEY_VALUE="${{ secrets.GOOGLE_MAPS_API_KEY }}"
+          GOOGLE_MAPS_API_KEY_VALUE="${{ secrets.GOOGLE_MAPS_API_KEY || '' }}"
 
-          jq --argjson health_port "${{ inputs.health_check_port_value }}" \
-             --argjson http_port "${{ inputs.http_port_value }}" \
-             --argjson https_port "${{ inputs.https_port_value }}" \
-             --argjson websocket_port "${{ inputs.websocket_port_value }}" \
+          # jq 명령어를 사용하여 task-definition.json.template 파일 렌더링
+          # --argjson 대신 --arg를 사용하여 모든 입력을 문자열로 안전하게 전달
+          # jq 스크립트 내부에서 tonumber와 기본값 처리를 통해 안정성 확보
+          jq --arg health_port "${{ inputs.health_check_port_value }}" \
+             --arg http_port "${{ inputs.http_port_value }}" \
+             --arg https_port "${{ inputs.https_port_value }}" \
+             --arg websocket_port "${{ inputs.websocket_port_value }}" \
              --arg image "${{ inputs.image_name_ecr }}:${{ inputs.image_tag }}" \
              --arg family "${{ inputs.ecs_task_def_family }}" \
              --arg execution_role_arn "${{ secrets.task_execution_role_arn }}" \
@@ -112,21 +116,24 @@ jobs:
               | .containerDefinitions[0].name = $container_name
               | .containerDefinitions[0].image = $image
               | .containerDefinitions[0].portMappings = [
-                 { "containerPort": $http_port, "hostPort": 0, "protocol": "tcp", "name": "http" },
-                 { "containerPort": $https_port, "hostPort": 0, "protocol": "tcp", "name": "https" },
-                 { "containerPort": $websocket_port, "hostPort": 0, "protocol": "tcp", "name": "websocket" }
+                 # 각 포트 값이 비어있거나 null이면 기본값을 사용하고, 아니면 숫자로 변환
+                 { "containerPort": (if $http_port | test("^\\d+$") then ($http_port | tonumber) else 8080 end), "hostPort": 0, "protocol": "tcp", "name": "http" },
+                 { "containerPort": (if $https_port | test("^\\d+$") then ($https_port | tonumber) else 58080 end), "hostPort": 0, "protocol": "tcp", "name": "https" },
+                 { "containerPort": (if $websocket_port | test("^\\d+$") then ($websocket_port | tonumber) else 33335 end), "hostPort": 0, "protocol": "tcp", "name": "websocket" }
                ]
               | .containerDefinitions[0].environment = [
-                 { "name": "HTTP_PORT", "value": ($http_port | tostring) },
-                 { "name": "HTTPS_PORT", "value": ($https_port | tostring) },
-                 { "name": "WEBSOCKET_PORT", "value": ($websocket_port | tostring) },
+                 # 환경 변수에도 동일한 로직 적용
+                 { "name": "HTTP_PORT", "value": (if $http_port | test("^\\d+$") then $http_port else "8080" end) },
+                 { "name": "HTTPS_PORT", "value": (if $https_port | test("^\\d+$") then $https_port else "58080" end) },
+                 { "name": "WEBSOCKET_PORT", "value": (if $websocket_port | test("^\\d+$") then $websocket_port else "33335" end) },
                  { "name": "GOOGLE_MAPS_API_KEY", "value": $google_maps_api_key }
                ]
               | .containerDefinitions[0].logConfiguration.options."awslogs-group" = "/ecs/" + $family
               | .containerDefinitions[0].logConfiguration.options."awslogs-region" = $aws_region
               | .containerDefinitions[0].healthCheck.command = [
                  "CMD-SHELL",
-                 "curl -f http://localhost:" + ($http_port | tostring) + "/health || exit 1"
+                 # healthCheck 포트에도 기본값 로직 적용
+                 "curl -f http://localhost:" + (if $http_port | test("^\\d+$") then $http_port else "8080" end) + "/health || exit 1"
                ]
              ' ${{ inputs.task_definition_template_path }} > rendered.json
 
