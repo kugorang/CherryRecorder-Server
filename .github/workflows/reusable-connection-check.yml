@@ -92,20 +92,21 @@ jobs:
           RETRY_DELAY=${{ inputs.retry_delay_seconds || 10 }}
           CONNECT_TIMEOUT=${{ inputs.connect_timeout_seconds || 5 }}
           
-          # --- 1. HTTP Health Endpoint 확인 ---
-          echo "Checking HTTP endpoint: http://${{ inputs.server_address }}:${HTTP_PORT}/health"
+          # --- 1. HTTPS Health Endpoint 확인 ---
+          echo "Checking HTTPS endpoint: https://${{ inputs.server_address }}:${HTTP_PORT}/health"
           
           attempt=1
           while [ $attempt -le $MAX_ATTEMPTS ]; do
             echo "Attempt $attempt/$MAX_ATTEMPTS..."
             
-            if curl -sS --fail --connect-timeout $CONNECT_TIMEOUT "http://${{ inputs.server_address }}:${HTTP_PORT}/health"; then
+            # -k: 인증서 유효성 검사 생략 (테스트 환경용)
+            if curl -sS -k --fail --connect-timeout $CONNECT_TIMEOUT "https://${{ inputs.server_address }}:${HTTP_PORT}/health"; then
               echo "Health check successful on port ${HTTP_PORT}!"
               break
             fi
             
             if [ $attempt -eq $MAX_ATTEMPTS ]; then
-              echo "Error: HTTP Health check failed after $MAX_ATTEMPTS attempts."
+              echo "Error: HTTPS Health check failed after $MAX_ATTEMPTS attempts."
               exit 1
             fi
             
@@ -114,24 +115,26 @@ jobs:
             attempt=$((attempt+1))
           done
 
-          # --- 2. WebSocket 연결 확인 (netcat 사용) ---
-          echo "Checking WebSocket endpoint: ${{ inputs.server_address }}:${WEBSOCKET_PORT}"
+          # --- 2. WSS (TLS) 연결 확인 (openssl 사용) ---
+          echo "Checking WSS (TLS) endpoint: ${{ inputs.server_address }}:${WEBSOCKET_PORT}"
           
           attempt=1
           while [ $attempt -le $MAX_ATTEMPTS ]; do
             echo "Attempt $attempt/$MAX_ATTEMPTS..."
             
-            if nc -z -w $CONNECT_TIMEOUT ${{ inputs.server_address }} $WEBSOCKET_PORT; then
-              echo "WebSocket port ${WEBSOCKET_PORT} is open!"
+            # openssl s_client를 사용하여 TLS 핸드셰이크가 성공하는지 확인
+            # 핸드셰이크 후 즉시 종료하기 위해 </dev/null 사용
+            if openssl s_client -connect ${{ inputs.server_address }}:${WEBSOCKET_PORT} < /dev/null 2>/dev/null; then
+              echo "WSS (TLS) handshake successful on port ${WEBSOCKET_PORT}!"
               break
             fi
             
             if [ $attempt -eq $MAX_ATTEMPTS ]; then
-              echo "Error: WebSocket connection test failed after $MAX_ATTEMPTS attempts."
+              echo "Error: WSS (TLS) connection test failed after $MAX_ATTEMPTS attempts."
               exit 1
             fi
             
-            echo "WebSocket connection test failed, retrying in $RETRY_DELAY seconds..."
+            echo "WSS (TLS) connection test failed, retrying in $RETRY_DELAY seconds..."
             sleep $RETRY_DELAY
             attempt=$((attempt+1))
           done
