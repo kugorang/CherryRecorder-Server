@@ -116,13 +116,11 @@ jobs:
               | .containerDefinitions[0].name = $container_name
               | .containerDefinitions[0].image = $image
               | .containerDefinitions[0].portMappings = [
-                 # 각 포트 값이 비어있거나 null이면 기본값을 사용하고, 아니면 숫자로 변환
                  { "containerPort": (if $http_port | test("^\\d+$") then ($http_port | tonumber) else 8080 end), "hostPort": 0, "protocol": "tcp", "name": "http" },
                  { "containerPort": (if $https_port | test("^\\d+$") then ($https_port | tonumber) else 58080 end), "hostPort": 0, "protocol": "tcp", "name": "https" },
                  { "containerPort": (if $websocket_port | test("^\\d+$") then ($websocket_port | tonumber) else 33335 end), "hostPort": 0, "protocol": "tcp", "name": "websocket" }
                ]
               | .containerDefinitions[0].environment = [
-                 # 환경 변수에도 동일한 로직 적용
                  { "name": "HTTP_PORT", "value": (if $http_port | test("^\\d+$") then $http_port else "8080" end) },
                  { "name": "HTTPS_PORT", "value": (if $https_port | test("^\\d+$") then $https_port else "58080" end) },
                  { "name": "WEBSOCKET_PORT", "value": (if $websocket_port | test("^\\d+$") then $websocket_port else "33335" end) },
@@ -132,7 +130,6 @@ jobs:
               | .containerDefinitions[0].logConfiguration.options."awslogs-region" = $aws_region
               | .containerDefinitions[0].healthCheck.command = [
                  "CMD-SHELL",
-                 # healthCheck 포트에도 기본값 로직 적용
                  "curl -f http://localhost:" + (if $http_port | test("^\\d+$") then $http_port else "8080" end) + "/health || exit 1"
                ]
              ' ${{ inputs.task_definition_template_path }} > rendered.json
