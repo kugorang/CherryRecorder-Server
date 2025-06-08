@@ -1,9 +1,7 @@
 # HttpServerLib 라이브러리 정의
 add_library(HttpServerLib
     # Beast HTTP 서버
-    BeastHttpServer.cpp
-    # Proxygen HTTP 서버
-    ProxygenHttpServer.cpp
+    HttpServer.cpp
     # Places API 핸들러
     PlacesApiHandler.cpp
     # HttpsServer 구현

@@ -174,10 +174,10 @@ def main():
             run_args_list = ["docker", "run", "-d", "--name", container_name]
             
             # t2.micro 환경을 위한 리소스 제한
-            # 1GB RAM 중 시스템용 300MB 제외하고 700MB 할당
+            # 1GB RAM 중 시스템용 100MB 제외하고 900MB 할당
             resource_limits = [
-                "--memory", "700m",
-                "--memory-swap", "700m",  # swap 비활성화 (성능 저하 방지)
+                "--memory", "900m",
+                "--memory-swap", "900m",  # swap 비활성화 (성능 저하 방지)
                 "--cpus", "0.95"  # CPU의 95% 사용 (시스템 여유분 확보)
             ]
             run_args_list.extend(resource_limits)
@@ -186,12 +186,21 @@ def main():
             if IS_T2_MICRO:
                 ecs_options = [
                     "--privileged",  # WSL2/ECS libevent 문제 해결
-                    "--log-driver", "json-file",
-                    "--log-opt", "max-size=10m",  # 로그 크기 제한
-                    "--log-opt", "max-file=3",
+                    "--log-driver", "awslogs",
+                    "--log-opt", f"awslogs-group=/ecs/cherryrecorder-server",
+                    "--log-opt", f"awslogs-region=ap-northeast-2",
+                    "--log-opt", f"awslogs-stream=local-test",
                     "--restart", "unless-stopped"
                 ]
                 run_args_list.extend(ecs_options)
+            else:
+                # 로컬 개발 환경에서는 json-file 사용
+                local_options = [
+                    "--log-driver", "json-file",
+                    "--log-opt", "max-size=10m",
+                    "--log-opt", "max-file=3"
+                ]
+                run_args_list.extend(local_options)
             
             port_map_options = [
                 "-p", f"{HOST_PORT_HTTP}:{CONTAINER_PORT_HTTP}",

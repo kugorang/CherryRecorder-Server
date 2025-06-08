@@ -36,14 +36,15 @@ echo ""
 echo "--- Starting container ---"
 docker run -d \
     --name $CONTAINER_NAME \
-    --memory 700m \
-    --memory-swap 700m \
+    --memory 900m \
+    --memory-swap 900m \
     --cpus 0.95 \
     --privileged \
     --restart unless-stopped \
-    --log-driver json-file \
-    --log-opt max-size=10m \
-    --log-opt max-file=3 \
+    --log-driver awslogs \
+    --log-opt awslogs-group=/ecs/cherryrecorder-server \
+    --log-opt awslogs-region=ap-northeast-2 \
+    --log-opt awslogs-stream=t2-micro-local \
     -p 8080:8080 \
     -p 33334:33334 \
     --env-file server-config.env \

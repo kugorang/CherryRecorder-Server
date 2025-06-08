@@ -23,22 +23,4 @@ if(PORT MATCHES "libevent")
         -DEVENT__DISABLE_EVPORT=ON
         -DEVENT__ENABLE_GCC_WARNINGS=OFF
     )
-endif()
-
-# Folly 특정 설정
-if(PORT MATCHES "folly")
-    set(VCPKG_CMAKE_CONFIGURE_OPTIONS
-        ${VCPKG_CMAKE_CONFIGURE_OPTIONS}
-        -DFOLLY_USE_EPOLL=OFF
-        -DBUILD_SHARED_LIBS=OFF
-        -DFOLLY_HAVE_WEAK_SYMBOLS=OFF
-    )
-endif()
-
-# Proxygen 특정 설정
-if(PORT MATCHES "proxygen")
-    set(VCPKG_CMAKE_CONFIGURE_OPTIONS
-        ${VCPKG_CMAKE_CONFIGURE_OPTIONS}
-        -DBUILD_SHARED_LIBS=OFF
-    )
 endif() 

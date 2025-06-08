@@ -78,21 +78,11 @@ find_package(OpenSSL REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(Threads REQUIRED) # Find pthreads on non-Windows
 
-# Proxygen 및 의존성 찾기 (비-Windows 전용)
-if(NOT WIN32)
-    find_package(proxygen CONFIG REQUIRED)
-    find_package(folly CONFIG REQUIRED)
-    find_package(fizz CONFIG REQUIRED)
-    find_package(wangle CONFIG REQUIRED)
-    find_package(gflags CONFIG REQUIRED)
-    find_package(glog CONFIG REQUIRED)
-    message(STATUS "Proxygen and its dependencies found (non-Windows build).")
-endif()
+# Proxygen 제거됨 - Beast만 사용
 
 message(STATUS "Boost include directories: ${Boost_INCLUDE_DIRS}")
 message(STATUS "OpenSSL include directories: ${OPENSSL_INCLUDE_DIR}")
 message(STATUS "spdlog include directories: ${spdlog_INCLUDE_DIRS}") # Check variable name from find_package
-message(STATUS "Proxygen found: TRUE")
 
 # ----------------------------------------------------------------------
 # Chat Library Target (ChatLib)
@@ -152,37 +142,7 @@ if(NOT WIN32)
 endif()
 message(STATUS "Configured target: HttpServerLib library (HTTP Health)")
 
-# ----------------------------------------------------------------------
-# Proxygen 기반 HTTP/HTTPS 서버 라이브러리 (ProxygenHttpServerLib)
-# ----------------------------------------------------------------------
-if(NOT WIN32)
-    add_library(ProxygenHttpServerLib)
-    target_sources(ProxygenHttpServerLib PRIVATE 
-        src/ProxygenHttpServer.cpp 
-        src/handlers/PlacesApiHandler.cpp  # Places API 핸들러 재사용
-    )
-    target_include_directories(ProxygenHttpServerLib PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-    )
-    target_link_libraries(ProxygenHttpServerLib PUBLIC
-        proxygen::proxygenhttpserver
-        Folly::folly
-        fizz::fizz
-        wangle::wangle
-        gflags
-        glog::glog
-        OpenSSL::SSL
-        OpenSSL::Crypto
-        Boost::json  # PlacesApiHandler에서 사용
-        spdlog::spdlog
-    )
-    # 플랫폼별 스레드 라이브러리 링크
-    if(Threads_FOUND)
-        target_link_libraries(ProxygenHttpServerLib PUBLIC Threads::Threads)
-    endif()
-    message(STATUS "Configured target: ProxygenHttpServerLib (Proxygen-based HTTP/HTTPS for non-Windows)")
-endif()
+# Proxygen 제거됨 - Beast만 사용
 
 # --- 라이브러리 타겟 정의: ChatServerLib (채팅 서버 로직) ---
 add_library(ChatServerLib STATIC)
@@ -247,21 +207,7 @@ message(STATUS "Configured target: CherryRecorder-Server-App executable (Beast-b
 add_executable(CherryRecorder-App ALIAS CherryRecorder-Server-App)
 message(STATUS "Created alias: CherryRecorder-App -> CherryRecorder-Server-App")
 
-# 비-Windows 전용 실행 파일 (Proxygen 기반)
-if(NOT WIN32)
-    add_executable(CherryRecorder-Proxygen-App)
-    target_sources(CherryRecorder-Proxygen-App PRIVATE
-        src/main_proxygen.cpp  # Proxygen 전용 main 파일
-    )
-    target_link_libraries(CherryRecorder-Proxygen-App PRIVATE
-        ProxygenHttpServerLib
-        ChatServerLib  # 채팅 서버도 함께 실행
-    )
-    if(Threads_FOUND)
-        target_link_libraries(CherryRecorder-Proxygen-App PRIVATE Threads::Threads)
-    endif()
-    message(STATUS "Configured target: CherryRecorder-Proxygen-App executable for non-Windows")
-endif()
+# Proxygen 제거됨 - Beast만 사용
 
 # ----------------------------------------------------------------------
 # 테스트 설정 (gtest)

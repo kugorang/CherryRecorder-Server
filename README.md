@@ -3,9 +3,11 @@
 [![CI/CD](https://github.com/kugorang/CherryRecorder-Server/actions/workflows/main-ci-cd.yml/badge.svg)](https://github.com/kugorang/CherryRecorder-Server/actions/workflows/main-ci-cd.yml)
 [![Documentation](https://img.shields.io/badge/docs-doxygen-blue.svg)](https://kugorang.github.io/CherryRecorder-Server/)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-green.svg)](LICENSE.txt)
-[![C++](https://img.shields.io/badge/C++-20-blue.svg)](https://isocpp.org/)
+[![C++](https://img.shields.io/badge/c++-%2300599C.svg?style=for-the-badge&logo=c%2B%2B&logoColor=white)](https://en.cppreference.com/w/cpp/20)
+[![CMake](https://img.shields.io/badge/CMake-%23008FBA.svg?style=for-the-badge&logo=cmake&logoColor=white)](https://cmake.org/)
+[![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 
-C++20과 Proxygen 프레임워크로 구현된 CherryRecorder의 고성능 백엔드 서버입니다. 위치 기반 서비스와 실시간 채팅 기능을 제공합니다.
+C++20과 Boost.Beast 프레임워크로 구현된 CherryRecorder의 고성능 백엔드 서버입니다. 위치 기반 서비스와 실시간 채팅 기능을 제공합니다.
 
 ## 📋 목차
 
@@ -22,12 +24,12 @@ C++20과 Proxygen 프레임워크로 구현된 CherryRecorder의 고성능 백�
 
 ## 📱 프로젝트 소개
 
-CherryRecorder Server는 Flutter 클라이언트 앱을 위한 백엔드 시스템입니다. 사용자의 위치 기반 혜택 정보를 관리하고, 실시간 채팅 서비스를 제공하는 고성능 서버입니다. Facebook의 Proxygen 프레임워크를 기반으로 하여 뛰어난 성능과 확장성을 제공합니다.
+CherryRecorder Server는 Flutter 클라이언트 앱을 위한 백엔드 시스템입니다. 사용자의 위치 기반 혜택 정보를 관리하고, 실시간 채팅 서비스를 제공하는 고성능 서버입니다. Boost.Beast 프레임워크를 기반으로 하여 뛰어난 성능과 확장성을 제공합니다.
 
 ### 주요 기능
 
 1.  **🌐 고성능 HTTP/WebSocket 서버**
-    - Proxygen 기반의 멀티스레드 I/O 처리
+    - Boost.Beast 기반의 멀티스레드 I/O 처리
     - `/health` 헬스체크 엔드포인트
     - SSL/TLS 암호화 지원 (HTTPS/WSS)
 
@@ -71,8 +73,8 @@ graph TD
 ### 기술 스택
 
 -   **Language**: C++20
--   **Core Framework**: Proxygen, Folly, Boost.Asio, Boost.Beast
--   **Build System**: CMake 3.20+
+-   **Core Framework**: Boost.Beast, Boost.Asio
+-   **Build System**: CMake 3.20+, vcpkg
 -   **Package Manager**: vcpkg
 -   **Libraries**: OpenSSL, spdlog, nlohmann/json
 -   **Containerization**: Docker
@@ -134,7 +136,7 @@ GOOGLE_MAPS_API_KEY=your_api_key_here
 
 # 서버 설정 (선택사항 - 기본값 있음)
 HTTP_PORT=8080
-HTTPS_PORT=58080 # Proxygen 기본값, 현재는 비활성화
+HTTPS_PORT=58080 # Boost.Beast HTTPS, 현재는 비활성화
 WS_PORT=33334
 THREADS=8
 
@@ -163,7 +165,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -D CMAKE_TOOLCHAIN_FILE=./vcpkg/s
 cmake --build build
 
 # 서버 실행
-./build/CherryRecorder-Proxygen-App
+./build/CherryRecorder-App
 ```
 
 ### Docker 실행
@@ -186,19 +188,15 @@ docker run -p 8080:8080 -p 33334:33334 \
 이 서버는 AWS ECS(Elastic Container Service)에 EC2 모드로 배포되도록 설계되었습니다.
 
 -   **CI/CD**: `.github/workflows/`의 GitHub Actions 워크플로우가 main 브랜치 푸시 시 Docker 이미지를 빌드하여 Amazon ECR에 푸시합니다.
--   **Task Definition**: `task-definition.json.template`는 ECS 배포를 위한 템플릿입니다. Proxygen의 안정성을 위해 `awsvpc` 네트워크 모드, EC2 타입, 최적화된 `ulimits` 및 `sysctl` 설정이 포함되어 있습니다.
+-   **Task Definition**: `task-definition.json.template`는 ECS 배포를 위한 템플릿입니다. Boost.Beast의 안정성을 위해 `awsvpc` 네트워크 모드, EC2 타입, 최적화된 `ulimits` 및 환경 변수 설정이 포함되어 있습니다.
 -   **서비스 생성**: ECR의 이미지를 사용하여 ECS 서비스를 생성하고 Application Load Balancer(ALB)와 연동합니다.
 
 ## ⚠️ 문제 해결
 
-### Proxygen on ECS EC2
+### ECS EC2 환경에서의 이벤트 루프 이슈
 
--   **문제점**: Proxygen/Folly의 기본 이벤트 메커니즘(`epoll`)이 일부 ECS 환경에서 `Function not implemented` 오류를 발생시키며 비정상 종료되는 현상이 있었습니다.
--   **해결 과정**:
-    1.  **Fargate vs EC2**: 커널 제어가 용이한 **EC2 모드**를 채택했습니다.
-    2.  **Event Backend 변경**: `FOLLY_EVENTBASE_BACKEND` 환경 변수를 `poll`로 강제하여 `epoll` 사용을 회피했습니다.
-    3.  **libevent 커스텀 빌드**: `Dockerfile` 내에서 `libevent`를 `--disable-epoll` 옵션으로 직접 컴파일하여, `epoll` 기능이 원천적으로 제외된 라이브러리를 사용하도록 했습니다.
-    4.  **시스템 리소스 최적화**: ECS 태스크 정의에서 `ulimits`(파일 디스크립터 수) 및 `sysctl`(네트워크 커널 파라미터) 설정을 튜닝하여 안정성을 확보했습니다.
+-   **문제점**: Boost.Asio의 기본 이벤트 메커니즘(`epoll`)이 일부 ECS 환경에서 `Function not implemented` 오류를 발생시키며 비정상 종료되는 현상이 있었습니다.
+-   **해결책**: libevent의 백엔드를 `poll`로 설정하여 해결했습니다.
 
 ## 📄 라이선스
 

@@ -8,11 +8,7 @@
     "boost-beast",
     "openssl",
     "boost-json",
-    "spdlog",
-    {
-      "name": "proxygen",
-      "platform": "!windows"
-    }
+    "spdlog"
   ],
   "features": {
     "tests": {
