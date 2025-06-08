@@ -142,23 +142,24 @@ jobs:
           echo "All connection checks passed successfully!"
           exit 0
         shell: bash
-        continue-on-error: true
+        # continue-on-error 제거하여 실패 시 step이 실패로 표시되도록 함
 
       # 최종 상태 설정
       - name: Set final connection status
         id: set-status
         if: always()
         run: |
-          HTTP_SUCCESS="${{ steps.http-check.outputs.http_success }}"
-          TCP_SUCCESS="${{ steps.tcp-check.outputs.tcp_success }}"
+          # connection-check step의 결과를 확인
+          CONNECTION_RESULT="${{ steps.connection-check.outcome }}"
           
-          if [ "$HTTP_SUCCESS" = "true" ] && [ "$TCP_SUCCESS" = "true" ]; then
+          if [ "$CONNECTION_RESULT" = "success" ]; then
             echo "All connection checks passed successfully!"
             echo "final_status=success" >> $GITHUB_OUTPUT
           else
-            echo "Some connection checks failed!"
-            echo "HTTP Health check: ${HTTP_SUCCESS:-false}"
-            echo "TCP Echo check: ${TCP_SUCCESS:-false}"
+            echo "Connection checks failed!"
+            echo "Connection check result: $CONNECTION_RESULT"
             echo "final_status=fail" >> $GITHUB_OUTPUT
+            # 명시적으로 실패 반환
+            exit 1
           fi
         shell: bash

@@ -205,10 +205,19 @@ RUN mkdir -p history && chown appuser:appuser history
 USER appuser
 
 # ECS/Fargate 환경에서 epoll 문제 해결을 위한 환경 변수 설정
-ENV FOLLY_EVENTBASE_BACKEND=poll
+# EventBase backend 설정 - select 백엔드 사용
+ENV FOLLY_EVENTBASE_BACKEND=select
 ENV FOLLY_DISABLE_EPOLL=1
+ENV FOLLY_USE_EPOLL=0
+# libevent 백엔드 강제 설정
+ENV EVENT_NOKQUEUE=1
+ENV EVENT_NOPOLL=0
+ENV EVENT_NOSELECT=0
+ENV EVENT_NOEPOLL=1
+# 추가 디버깅을 위한 로깅
 ENV GLOG_minloglevel=0
 ENV GLOG_v=2
+ENV GLOG_logtostderr=1
 
 # 기본 포트 노출 (HTTP, WS)
 EXPOSE 8080 33334

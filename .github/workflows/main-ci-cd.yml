@@ -242,6 +242,7 @@ jobs:
     if: needs.call_deploy_aws.result == 'success' # 배포 성공 시에만 실행
     uses: ./.github/workflows/reusable-connection-check.yml
     needs: call_deploy_aws
+    # continue-on-error 제거하여 연결 실패 시 전체 워크플로우가 실패하도록 함
     with: # inputs 전달을 위해 with 사용
       # GitHub 저장소 Variables 참조
       server_address: ${{ vars.SERVER_ADDRESS }}

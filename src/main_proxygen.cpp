@@ -38,9 +38,13 @@ void signalHandler(int signum) {
 
 int main(int argc, char* argv[]) {
     // ECS 환경에서 epoll 문제 해결을 위한 설정
-    // poll 백엔드 사용 강제
-    setenv("FOLLY_EVENTBASE_BACKEND", "poll", 1);
+    // select 백엔드 사용 강제 (ECS Fargate 호환성)
+    setenv("FOLLY_EVENTBASE_BACKEND", "select", 1);
     setenv("FOLLY_DISABLE_EPOLL", "1", 1);
+    setenv("FOLLY_USE_EPOLL", "0", 1);
+    // libevent 백엔드 설정
+    setenv("EVENT_NOEPOLL", "1", 1);
+    setenv("EVENT_NOSELECT", "0", 1);
     
     // Folly/glog/gflags 초기화
     folly::Init init(&argc, &argv, true);
