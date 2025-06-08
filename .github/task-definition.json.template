@@ -59,6 +59,22 @@
         {
           "name": "LOG_LEVEL",
           "value": "INFO"
+        },
+        {
+          "name": "FOLLY_EVENTBASE_BACKEND",
+          "value": "poll"
+        },
+        {
+          "name": "FOLLY_DISABLE_EPOLL",
+          "value": "1"
+        },
+        {
+          "name": "GLOG_minloglevel",
+          "value": "0"
+        },
+        {
+          "name": "GLOG_v",
+          "value": "2"
         }
       ],
       "logConfiguration": {

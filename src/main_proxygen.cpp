@@ -6,7 +6,6 @@
 #include <thread>
 #include <iostream>
 #include <boost/asio/io_context.hpp>
-#include <folly/io/async/EventBaseBackendBase.h>
 #include "ProxygenHttpServer.hpp"
 #include "ChatServer.hpp"
 #include "../include/WebSocketListener.hpp"
@@ -41,20 +40,22 @@ int main(int argc, char* argv[]) {
     // ECS 환경에서 epoll 문제 해결을 위한 설정
     // poll 백엔드 사용 강제
     setenv("FOLLY_EVENTBASE_BACKEND", "poll", 1);
+    setenv("FOLLY_DISABLE_EPOLL", "1", 1);
     
     // Folly/glog/gflags 초기화
     folly::Init init(&argc, &argv, true);
     
     LOG(INFO) << "CherryRecorder Server v1.1 - WEBSOCKET_FIX_APPLIED (Proxygen)";
     LOG(INFO) << "EventBase backend: " << getenv("FOLLY_EVENTBASE_BACKEND");
-    
-    // 시그널 핸들러 설정
-    std::signal(SIGINT, signalHandler);
-    std::signal(SIGTERM, signalHandler);
+    LOG(INFO) << "FOLLY_DISABLE_EPOLL: " << getenv("FOLLY_DISABLE_EPOLL");
     
     LOG(INFO) << "===========================================";
     LOG(INFO) << "CherryRecorder Server (Proxygen Edition)";
     LOG(INFO) << "===========================================";
+    
+    // 시그널 핸들러 설정
+    std::signal(SIGINT, signalHandler);
+    std::signal(SIGTERM, signalHandler);
     
     // 환경 변수 확인
     const char* api_key = std::getenv("GOOGLE_MAPS_API_KEY");

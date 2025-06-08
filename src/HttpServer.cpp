@@ -221,6 +221,19 @@ private:
                 handle_bad_request("Missing Place ID in /places/details/ request.");
             }
         }
+        else if (req_.method() == http::verb::get && req_.target().starts_with("/place/photo/")) {
+            fprintf(stdout, "[HttpSession %p] Places API Photo GET 요청 감지: %s\n", (void*)this, std::string(req_.target()).c_str());
+            // 경로에서 Photo Reference 추출
+            std::string target_path(req_.target()); // string_view를 std::string으로 변환
+            std::string photo_reference = target_path.substr(std::string("/place/photo/").length());
+            if (!photo_reference.empty()) {
+                handle_place_photo_request(photo_reference); // 추출한 참조 ID 전달
+            }
+            else {
+                // Photo Reference가 없는 경우 잘못된 요청 처리
+                handle_bad_request("Missing Photo Reference in /place/photo/ request.");
+            }
+        }
         else if (req_.target() == "/status") {
             // HTTP 200 OK 응답 생성
             http::response<http::string_body> res{http::status::ok, req_.version()};
@@ -273,6 +286,18 @@ private:
         ///< @note 현재는 Google API 응답 형식을 그대로 클라이언트에 반환합니다.
         ///< @todo 필요 시 응답 형식을 변환하는 transformPlaceDetails 함수를 구현할 수 있습니다.
         http::response<http::string_body> res = places_handler_->handlePlaceDetails(place_id);
+        send_response(std::move(res));
+    }
+
+    /**
+     * @brief 장소 사진 요청 처리
+     * @param photo_reference URL 경로에서 추출한 사진 참조 ID
+     */
+    void handle_place_photo_request(const std::string& photo_reference) { 
+        fprintf(stdout, "[HttpSession %p] Handling /place/photo request for reference: %s\n", (void*)this, photo_reference.c_str());
+        
+        // Google Places Photo API를 통해 이미지 가져오기
+        http::response<http::string_body> res = places_handler_->handlePlacePhoto(photo_reference);
         send_response(std::move(res));
     }
 

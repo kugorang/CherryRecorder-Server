@@ -194,9 +194,19 @@ void ChatSession::process_command(const std::string& command_line) {
                             nickname_ = nick_copy; // Update local nickname
                             spdlog::info("[ChatSession {}] Nickname change success: {} -> {}", static_cast<void*>(this), previous_nick, nick_copy);
                             async_responses.push_back("* 닉네임이 '" + nick_copy + "'(으)로 변경되었습니다.\r\n");
-                            // Broadcast nickname change globally
-                            std::string notice = "* 사용자 '" + previous_nick + "'의 닉네임이 '" + nick_copy + "'(으)로 변경되었습니다.\r\n";
-                            if(server_) server_->broadcast(notice, self); // Exclude self
+                            
+                            // Check if this is the first nickname change (from IP:PORT to actual nickname)
+                            bool is_first_nickname = (previous_nick == remote_id_);
+                            
+                            if (is_first_nickname) {
+                                // Broadcast join message for first-time nickname setting
+                                std::string join_notice = "* 사용자 '" + nick_copy + "'님이 입장했습니다.\r\n";
+                                if(server_) server_->broadcast(join_notice, self); // Exclude self
+                            } else {
+                                // Broadcast nickname change globally
+                                std::string notice = "* 사용자 '" + previous_nick + "'의 닉네임이 '" + nick_copy + "'(으)로 변경되었습니다.\r\n";
+                                if(server_) server_->broadcast(notice, self); // Exclude self
+                            }
                         } else {
                             spdlog::info("[ChatSession {}] Nickname change failed: {}", static_cast<void*>(this), nick_copy);
                             async_responses.push_back("Error: 닉네임 '" + nick_copy + "'은(는) 이미 사용 중이거나 유효하지 않습니다.\r\n");

@@ -139,20 +139,35 @@ http::response<http::string_body> PlacesApiHandler::handleTextSearch(
         
         // Google Places API 요청 데이터 구성
         json::object request_data;
-        json::object location_bias;
-        json::object circle;
-        json::object center;
         
         request_data["textQuery"] = query;
-        center["latitude"] = latitude;
-        center["longitude"] = longitude;
-        circle["center"] = center;
-        circle["radius"] = radius;
-        location_bias["circle"] = circle;
-        request_data["locationBias"] = location_bias;
+        
+        // 특정 랜드마크나 역 이름 검색 시 위치 제한 완화
+        bool isLandmarkSearch = (query.find("역") != std::string::npos || 
+                                query.find("공항") != std::string::npos ||
+                                query.find("터미널") != std::string::npos ||
+                                query.find("대학") != std::string::npos);
+        
+        if (!isLandmarkSearch && radius > 0) {
+            // 일반 검색의 경우 locationBias 사용
+            json::object location_bias;
+            json::object circle;
+            json::object center;
+            
+            center["latitude"] = latitude;
+            center["longitude"] = longitude;
+            circle["center"] = center;
+            circle["radius"] = radius * 2; // 반경을 2배로 늘려서 더 넓은 범위 검색
+            location_bias["circle"] = circle;
+            request_data["locationBias"] = location_bias;
+        }
+        // 랜드마크 검색의 경우 위치 제한 없이 전국 검색
 
-        // 필요한 파라미터 추가 (fieldMask는 searchText에서 지원하지 않음)
+        // 필요한 파라미터 추가
         request_data["maxResultCount"] = 20;
+        
+        // 한국어 검색 결과 우선
+        request_data["languageCode"] = "ko";
         
         // Google Places API 호출 (POST 사용)
         json::value response_data = this->requestGooglePlacesApi(
@@ -281,9 +296,10 @@ json::value PlacesApiHandler::requestGooglePlacesApi(
         
         // 메서드에 따라 다른 FieldMask 설정
         if (method == http::verb::get) { ///< Place Details (GET)
-            req.set("X-Goog-FieldMask", "id,displayName,formattedAddress,location");
+            // handlePlaceDetails에서 이미 fields 파라미터로 지정하므로 X-Goog-FieldMask 헤더는 설정하지 않음
+            // req.set("X-Goog-FieldMask", "id,displayName,formattedAddress,location");
         } else { ///< Nearby Search, Text Search (POST)
-            req.set("X-Goog-FieldMask", "places.id,places.displayName,places.formattedAddress,places.location");
+            req.set("X-Goog-FieldMask", "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.primaryTypeDisplayName");
         }
         
         // POST 요청일 때만 본문 설정
@@ -453,4 +469,162 @@ http::response<http::string_body> PlacesApiHandler::createErrorResponse(
     
     res.prepare_payload();
     return res;
+}
+
+http::response<http::string_body> PlacesApiHandler::handlePlacePhoto(
+    const std::string& photo_reference) {
+    
+    try {
+        std::cout << "handlePlacePhoto 호출됨, photo_reference: " << photo_reference << std::endl;
+        
+        // Google Places API v1 형식의 photo reference 처리
+        // 형식: places/ChIJXyQvMaRtZjURAln5cV-8xL4/photos/AXQCQNTelAdECPdcBwjlBRkJ0hUmnWUg...
+        std::string actual_photo_reference = photo_reference;
+        
+        // 전체 경로에서 실제 photo reference 추출
+        size_t photos_pos = photo_reference.find("/photos/");
+        if (photos_pos != std::string::npos) {
+            // "/photos/" 이후의 부분만 추출
+            actual_photo_reference = photo_reference.substr(photos_pos + 8);
+            std::cout << "추출된 photo reference: " << actual_photo_reference << std::endl;
+        }
+        
+        // Google Places Photo API URL 구성
+        std::string api_url = "https://maps.googleapis.com/maps/api/place/photo";
+        api_url += "?maxwidth=1600"; // 최대 너비 설정
+        api_url += "&photoreference=" + actual_photo_reference;
+        api_url += "&key=" + m_apiKey;
+        
+        // SSL 컨텍스트 및 IO 컨텍스트 설정
+        net::io_context ioc;
+        ssl::context ctx(ssl::context::tlsv12_client);
+        ctx.set_default_verify_paths();
+        
+        // HTTPS 연결 설정
+        tcp::resolver resolver(ioc);
+        ssl::stream<tcp::socket> stream(ioc, ctx);
+        
+        // 호스트 이름 추출
+        std::string host = "maps.googleapis.com";
+        auto const results = resolver.resolve(host, "443");
+        
+        // 연결 설정
+        net::connect(stream.next_layer(), results.begin(), results.end());
+        stream.handshake(ssl::stream_base::client);
+        
+        // HTTP 요청 준비
+        http::request<http::string_body> req{http::verb::get, api_url, 11};
+        req.set(http::field::host, host);
+        req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+        req.prepare_payload();
+        
+        // 요청 전송
+        http::write(stream, req);
+        
+        // 응답 수신 (이미지 데이터를 위해 dynamic_body 사용)
+        beast::flat_buffer buffer;
+        http::response<http::dynamic_body> res;
+        http::read(stream, buffer, res);
+        
+        // 연결 종료
+        beast::error_code ec;
+        stream.shutdown(ec);
+        if(ec == net::error::eof || ec == ssl::error::stream_truncated) {
+            ec = {}; // 정상적인 종료로 간주
+        }
+        
+        std::cout << "Google Photo API 응답 코드: " << res.result_int() << std::endl;
+        
+        // 302 리다이렉트 처리
+        if (res.result_int() == 302) {
+            // Location 헤더에서 리다이렉트 URL 추출
+            auto location = res.find(http::field::location);
+            if (location != res.end()) {
+                std::string redirect_url = std::string(location->value());
+                std::cout << "리다이렉트 URL: " << redirect_url << std::endl;
+                
+                // 리다이렉트 URL 파싱
+                // URL 형식: https://lh3.googleusercontent.com/...
+                size_t host_start = redirect_url.find("://") + 3;
+                size_t path_start = redirect_url.find("/", host_start);
+                
+                std::string redirect_host = redirect_url.substr(host_start, path_start - host_start);
+                std::string redirect_path = redirect_url.substr(path_start);
+                
+                // 새로운 연결로 리다이렉트된 URL에 접속
+                tcp::resolver redirect_resolver(ioc);
+                ssl::stream<tcp::socket> redirect_stream(ioc, ctx);
+                
+                auto const redirect_results = redirect_resolver.resolve(redirect_host, "443");
+                net::connect(redirect_stream.next_layer(), redirect_results.begin(), redirect_results.end());
+                redirect_stream.handshake(ssl::stream_base::client);
+                
+                // 리다이렉트 요청
+                http::request<http::string_body> redirect_req{http::verb::get, redirect_path, 11};
+                redirect_req.set(http::field::host, redirect_host);
+                redirect_req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+                redirect_req.prepare_payload();
+                
+                http::write(redirect_stream, redirect_req);
+                
+                // 실제 이미지 응답 수신
+                beast::flat_buffer redirect_buffer;
+                http::response<http::dynamic_body> redirect_res;
+                http::read(redirect_stream, redirect_buffer, redirect_res);
+                
+                // 연결 종료
+                beast::error_code redirect_ec;
+                redirect_stream.shutdown(redirect_ec);
+                if(redirect_ec == net::error::eof || redirect_ec == ssl::error::stream_truncated) {
+                    redirect_ec = {};
+                }
+                
+                // 리다이렉트된 응답 사용
+                res = std::move(redirect_res);
+            }
+        }
+        
+        // 오류 상태 확인
+        if (res.result_int() < 200 || res.result_int() >= 300) {
+            // 오류 응답을 그대로 전달
+            http::response<http::string_body> error_res{res.result(), 11};
+            error_res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+            error_res.set(http::field::content_type, "text/plain");
+            error_res.set(http::field::access_control_allow_origin, "*");
+            error_res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+            error_res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
+            
+            // dynamic_body를 string으로 변환
+            error_res.body() = beast::buffers_to_string(res.body().data());
+            error_res.prepare_payload();
+            return error_res;
+        }
+        
+        // 성공 응답 생성 (이미지 데이터)
+        http::response<http::string_body> img_res{http::status::ok, 11};
+        img_res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+        
+        // Content-Type 헤더 복사 (이미지 타입 유지)
+        if(res.count(http::field::content_type) > 0) {
+            img_res.set(http::field::content_type, res[http::field::content_type]);
+        } else {
+            img_res.set(http::field::content_type, "image/jpeg"); // 기본값
+        }
+        
+        // CORS 헤더 추가
+        img_res.set(http::field::access_control_allow_origin, "*");
+        img_res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+        img_res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
+        
+        // 이미지 데이터를 string으로 변환하여 저장
+        img_res.body() = beast::buffers_to_string(res.body().data());
+        img_res.prepare_payload();
+        
+        return img_res;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error in handlePlacePhoto: " << e.what() << std::endl;
+        return this->createErrorResponse(http::status::internal_server_error, 
+                                  std::string("Error fetching place photo: ") + e.what());
+    }
 }

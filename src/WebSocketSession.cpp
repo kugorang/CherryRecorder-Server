@@ -136,10 +136,20 @@ void WebSocketSession::process_message(const std::string& message)
                             set_nickname(new_nick);
                             deliver("* 닉네임이 '" + new_nick + "'(으)로 변경되었습니다.\r\n");
                             
+                            // Check if this is the first nickname change (from IP:PORT to actual nickname)
+                            bool is_first_nickname = (old_nick == remote_id_);
+                            
                             // 다른 사용자들에게 알림
                             if (server_) {
-                                std::string notify_msg = "* '" + old_nick + "'님이 '" + new_nick + "'(으)로 닉네임을 변경했습니다.\r\n";
-                                server_->broadcast(notify_msg, shared_from_this());
+                                if (is_first_nickname) {
+                                    // Broadcast join message for first-time nickname setting
+                                    std::string join_msg = "* 사용자 '" + new_nick + "'님이 입장했습니다.\r\n";
+                                    server_->broadcast(join_msg, shared_from_this());
+                                } else {
+                                    // Broadcast nickname change message
+                                    std::string notify_msg = "* '" + old_nick + "'님이 '" + new_nick + "'(으)로 닉네임을 변경했습니다.\r\n";
+                                    server_->broadcast(notify_msg, shared_from_this());
+                                }
                             }
                         } else {
                             deliver("Error: 닉네임 '" + new_nick + "'은(는) 이미 사용 중입니다.\r\n");

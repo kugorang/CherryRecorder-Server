@@ -14,9 +14,11 @@ WebSocketSSLSession::WebSocketSSLSession(tcp::socket&& socket, ssl::context& ctx
         auto remote_endpoint = beast::get_lowest_layer(ws_).socket().remote_endpoint();
         remote_id_ = remote_endpoint.address().to_string() + ":" + 
                      std::to_string(remote_endpoint.port());
+        nickname_ = remote_id_; // 초기 닉네임은 remote_id로 설정
     } catch (const std::exception& e) {
         spdlog::error("[WebSocketSSLSession] Failed to get remote endpoint: {}", e.what());
         remote_id_ = "unknown";
+        nickname_ = "unknown"; // 초기 닉네임도 설정
     }
 }
 
@@ -166,8 +168,25 @@ void WebSocketSSLSession::process_message(const std::string& message)
             server_->try_register_nickname_async(new_nick, shared_from_this(), 
                 [this, new_nick](bool success) {
                     if (success) {
+                        std::string old_nick = nickname_;
                         nickname_ = new_nick;
                         deliver("* 닉네임이 '" + new_nick + "'으로 변경되었습니다.\r\n");
+                        
+                        // Check if this is the first nickname change (from IP:PORT to actual nickname)
+                        bool is_first_nickname = (old_nick == remote_id_);
+                        
+                        // 다른 사용자들에게 알림
+                        if (server_) {
+                            if (is_first_nickname) {
+                                // Broadcast join message for first-time nickname setting
+                                std::string join_msg = "* 사용자 '" + new_nick + "'님이 입장했습니다.\r\n";
+                                server_->broadcast(join_msg, shared_from_this());
+                            } else {
+                                // Broadcast nickname change message
+                                std::string notify_msg = "* '" + old_nick + "'님이 '" + new_nick + "'으로 닉네임을 변경했습니다.\r\n";
+                                server_->broadcast(notify_msg, shared_from_this());
+                            }
+                        }
                     } else {
                         deliver("* 닉네임 변경 실패: 이미 사용 중이거나 유효하지 않습니다.\r\n");
                     }

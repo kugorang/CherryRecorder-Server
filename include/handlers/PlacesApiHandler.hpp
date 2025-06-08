@@ -54,6 +54,17 @@ public:
     http::response<http::string_body> handlePlaceDetails(
         const std::string& place_id);
 
+    /**
+     * @brief 장소 사진 요청 처리
+     * @param photo_reference 사진 참조 ID (URL 경로에서 추출됨)
+     * @return HTTP 응답 (이미지 바이너리 데이터)
+     * 
+     * @note Google Places Photo API를 프록시하여 이미지를 반환한다.
+     * 클라이언트에서 API 키가 노출되지 않도록 서버에서 중계한다.
+     */
+    http::response<http::string_body> handlePlacePhoto(
+        const std::string& photo_reference);
+
 private:
     std::string m_apiKey; ///< Google Places API 키
 

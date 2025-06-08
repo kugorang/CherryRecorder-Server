@@ -204,6 +204,12 @@ RUN mkdir -p history && chown appuser:appuser history
 # 사용자 전환
 USER appuser
 
+# ECS/Fargate 환경에서 epoll 문제 해결을 위한 환경 변수 설정
+ENV FOLLY_EVENTBASE_BACKEND=poll
+ENV FOLLY_DISABLE_EPOLL=1
+ENV GLOG_minloglevel=0
+ENV GLOG_v=2
+
 # 기본 포트 노출 (HTTP, WS)
 EXPOSE 8080 33334
 
