@@ -189,11 +189,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     strace \
     && rm -rf /var/lib/apt/lists/*
 
-# Builder 스테이지에서 빌드된 vcpkg 라이브러리 전체 복사
-COPY --from=builder /app/build/vcpkg_installed/x64-linux-ecs/lib/*.so* /usr/local/lib/
-
-# 라이브러리 캐시 업데이트
-RUN ldconfig
+# Static 링크를 사용하므로 라이브러리 복사 불필요
+# 필요한 런타임 의존성만 이미 apt-get으로 설치됨
 
 # 사용자 생성 및 디렉토리 설정
 RUN useradd --system --create-home --shell /bin/bash appuser

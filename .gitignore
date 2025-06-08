@@ -554,11 +554,61 @@ FodyWeavers.xsd
 
 # End of https://www.toptal.com/developers/gitignore/api/windows,macos,linux,c++,visualstudio,visualstudiocode,vcpkg,cmake,doxygen
 
-### Custom Ignores ###
-# Environment files with sensitive information
+# CUSTOM PROJECT SPECIFIC FILES
+# SSL/TLS certificates and keys
+cert.pem
+key.pem
+*.key
+*.crt
+*.csr
+
+# Environment configuration files
 .env
 .env.*
+env.txt
+*.env
 !.env.example
+!.env.docker.example
 
-# Batch script containing API key
-# build_and_run.bat
+# vcpkg related directories
+vcpkg/
+!vcpkg.json
+vcpkg-*.json
+
+# Specific executables
+CherryRecorder-Server-App
+CherryRecorder-Proxygen-App
+
+# Local utility scripts
+clean_vcpkg_cache.py
+local_build.sh
+local_test.sh
+*.local.py
+*.local.sh
+
+# Local notes
+notes.txt
+TODO.local
+*.local.md
+
+# history directory (runtime data)
+history/
+
+# Benchmarking results
+benchmark_results/
+perf_results/
+
+# IDE specific files not covered above
+.idea/
+*.swp
+*.swo
+*~
+
+# OS specific thumbnails
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*.backup
+*.old
