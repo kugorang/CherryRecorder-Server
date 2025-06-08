@@ -529,13 +529,12 @@ public:
 TEST_F(ChatServerTest, BasicConnectionAndWelcome) {
     auto client = std::make_shared<TestClient>(client_ioc_);
     ASSERT_TRUE(client->Connect("127.0.0.1", test_port_));
-    ASSERT_TRUE(client->WaitForMessages(6, std::chrono::milliseconds(3000))) << "Did not receive enough initial messages";
+    ASSERT_TRUE(client->WaitForMessages(5, std::chrono::milliseconds(3000))) << "Did not receive enough initial messages";
     EXPECT_TRUE(client->HasReceived("Welcome to the CherryRecorder Chat Server!"));
     EXPECT_TRUE(client->HasReceived("Your temporary ID is:"));
     EXPECT_TRUE(client->HasReceived("Please set your nickname using /nick <nickname>"));
     EXPECT_TRUE(client->HasReceived("Enter /help for a list of commands."));
     EXPECT_TRUE(client->HasReceived("Enter /join <roomname> to join or create a room."));
-    EXPECT_TRUE(client->HasReceived("님이 입장했습니다."));
     client->Close();
 }
 
@@ -557,7 +556,7 @@ TEST_F(ChatServerTest, SetValidNickname) {
 
     std::string nick_cmd = "/nick testuser";
     std::string expected_success_c1 = "닉네임이 'testuser'(으)로 변경되었습니다.";
-    std::string expected_broadcast_c2 = "닉네임이 'testuser'(으)로 변경되었습니다.";
+    std::string expected_broadcast_c2 = "사용자 'testuser'님이 입장했습니다.";
 
     client1->Send(nick_cmd);
 
@@ -592,8 +591,8 @@ TEST_F(ChatServerTest, SetDuplicateNickname) {
     ASSERT_TRUE(client1->WaitForSpecificMessage("닉네임이 'dup_nick'(으)로 변경되었습니다.", std::chrono::milliseconds(10000)))
         << "Client1 did not receive success for nick change";
     spdlog::info("Client1 받은 메시지 수: {}", client1->GetMessages().size());
-    spdlog::info("===== client2가 닉네임 변경 알림 확인 =====");
-    ASSERT_TRUE(client2->WaitForSpecificMessage("닉네임이 'dup_nick'(으)로 변경되었습니다.", std::chrono::milliseconds(10000)))
+    spdlog::info("===== client2가 입장 알림 확인 =====");
+    ASSERT_TRUE(client2->WaitForSpecificMessage("사용자 'dup_nick'님이 입장했습니다.", std::chrono::milliseconds(10000)))
         << "Client2 did not receive broadcast for nick change";
     spdlog::info("Client2 받은 메시지 수: {}", client2->GetMessages().size());
     client2->ClearMessages();
@@ -639,15 +638,18 @@ TEST_F(ChatServerTest, JoinAndLeaveRoom) {
     auto client2 = std::make_shared<TestClient>(client_ioc_);
     ASSERT_TRUE(client1->Connect("127.0.0.1", test_port_));
     ASSERT_TRUE(client2->Connect("127.0.0.1", test_port_));
-    ASSERT_TRUE(client1->WaitForSpecificMessage("님이 입장했습니다.", std::chrono::milliseconds(2000)));
-    ASSERT_TRUE(client2->WaitForSpecificMessage("님이 입장했습니다.", std::chrono::milliseconds(2000)));
+    // Initial join messages removed - only sent after nickname is set
+    ASSERT_TRUE(client1->WaitForMessages(5, std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client2->WaitForMessages(5, std::chrono::milliseconds(2000)));
 
     client1->Send("/nick user1");
     client2->Send("/nick user2");
     ASSERT_TRUE(client1->WaitForSpecificMessage("닉네임이 'user1'(으)로 변경되었습니다.", std::chrono::milliseconds(2000)));
-    ASSERT_TRUE(client1->WaitForSpecificMessage("닉네임이 'user2'(으)로 변경되었습니다.", std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client1->WaitForSpecificMessage("사용자 'user1'님이 입장했습니다.", std::chrono::milliseconds(2000)));
     ASSERT_TRUE(client2->WaitForSpecificMessage("닉네임이 'user2'(으)로 변경되었습니다.", std::chrono::milliseconds(2000)));
-    ASSERT_TRUE(client2->WaitForSpecificMessage("닉네임이 'user1'(으)로 변경되었습니다.", std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client2->WaitForSpecificMessage("사용자 'user2'님이 입장했습니다.", std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client1->WaitForSpecificMessage("사용자 'user2'님이 입장했습니다.", std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client2->WaitForSpecificMessage("사용자 'user1'님이 입장했습니다.", std::chrono::milliseconds(2000)));
 
     client1->ClearMessages(); client2->ClearMessages();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -685,15 +687,18 @@ TEST_F(ChatServerTest, SendMessageInRoom) {
     auto client2 = std::make_shared<TestClient>(client_ioc_);
     ASSERT_TRUE(client1->Connect("127.0.0.1", test_port_));
     ASSERT_TRUE(client2->Connect("127.0.0.1", test_port_));
-    ASSERT_TRUE(client1->WaitForSpecificMessage("님이 입장했습니다.", std::chrono::milliseconds(10000)));
-    ASSERT_TRUE(client2->WaitForSpecificMessage("님이 입장했습니다.", std::chrono::milliseconds(10000)));
+    // Initial join messages removed - only sent after nickname is set
+    ASSERT_TRUE(client1->WaitForMessages(5, std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client2->WaitForMessages(5, std::chrono::milliseconds(2000)));
 
     spdlog::info("===== 환영 메시지 수신 완료 =====");
     client1->Send("/nick user1"); client2->Send("/nick user2");
     ASSERT_TRUE(client1->WaitForSpecificMessage("닉네임이 'user1'", std::chrono::milliseconds(10000)));
     ASSERT_TRUE(client2->WaitForSpecificMessage("닉네임이 'user2'", std::chrono::milliseconds(10000)));
-    ASSERT_TRUE(client1->WaitForSpecificMessage("닉네임이 'user2'", std::chrono::milliseconds(10000)));
-    ASSERT_TRUE(client2->WaitForSpecificMessage("닉네임이 'user1'", std::chrono::milliseconds(10000)));
+    ASSERT_TRUE(client1->WaitForSpecificMessage("사용자 'user1'님이 입장했습니다.", std::chrono::milliseconds(10000)));
+    ASSERT_TRUE(client2->WaitForSpecificMessage("사용자 'user2'님이 입장했습니다.", std::chrono::milliseconds(10000)));
+    ASSERT_TRUE(client1->WaitForSpecificMessage("사용자 'user2'님이 입장했습니다.", std::chrono::milliseconds(10000)));
+    ASSERT_TRUE(client2->WaitForSpecificMessage("사용자 'user1'님이 입장했습니다.", std::chrono::milliseconds(10000)));
 
     client1->ClearMessages(); client2->ClearMessages();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -729,15 +734,18 @@ TEST_F(ChatServerTest, SendMessageWithoutRoom) {
     auto client2 = std::make_shared<TestClient>(client_ioc_);
     ASSERT_TRUE(client1->Connect("127.0.0.1", test_port_));
     ASSERT_TRUE(client2->Connect("127.0.0.1", test_port_));
-    ASSERT_TRUE(client1->WaitForSpecificMessage("님이 입장했습니다.", std::chrono::milliseconds(2000)));
-    ASSERT_TRUE(client2->WaitForSpecificMessage("님이 입장했습니다.", std::chrono::milliseconds(2000)));
+    // Initial join messages removed - only sent after nickname is set
+    ASSERT_TRUE(client1->WaitForMessages(5, std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client2->WaitForMessages(5, std::chrono::milliseconds(2000)));
 
     client1->Send("/nick sender");
     client2->Send("/nick receiver");
     ASSERT_TRUE(client1->WaitForSpecificMessage("닉네임이 'sender'", std::chrono::milliseconds(2000)));
     ASSERT_TRUE(client2->WaitForSpecificMessage("닉네임이 'receiver'", std::chrono::milliseconds(2000)));
-    ASSERT_TRUE(client1->WaitForSpecificMessage("닉네임이 'receiver'", std::chrono::milliseconds(2000)));
-    ASSERT_TRUE(client2->WaitForSpecificMessage("닉네임이 'sender'", std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client1->WaitForSpecificMessage("사용자 'sender'님이 입장했습니다.", std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client2->WaitForSpecificMessage("사용자 'receiver'님이 입장했습니다.", std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client1->WaitForSpecificMessage("사용자 'receiver'님이 입장했습니다.", std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client2->WaitForSpecificMessage("사용자 'sender'님이 입장했습니다.", std::chrono::milliseconds(2000)));
 
     client1->ClearMessages();
     client2->ClearMessages();
@@ -764,15 +772,17 @@ TEST_F(ChatServerTest, UserList) {
     ASSERT_TRUE(c1->Connect("127.0.0.1", test_port_));
     ASSERT_TRUE(c2->Connect("127.0.0.1", test_port_));
     ASSERT_TRUE(c3->Connect("127.0.0.1", test_port_));
-    ASSERT_TRUE(c1->WaitForSpecificMessage("님이 입장했습니다.", std::chrono::milliseconds(1000)));
-    ASSERT_TRUE(c2->WaitForSpecificMessage("님이 입장했습니다.", std::chrono::milliseconds(1000)));
-    ASSERT_TRUE(c3->WaitForSpecificMessage("님이 입장했습니다.", std::chrono::milliseconds(1000)));
+    // Initial join messages removed - only sent after nickname is set
+    ASSERT_TRUE(c1->WaitForMessages(5, std::chrono::milliseconds(1000)));
+    ASSERT_TRUE(c2->WaitForMessages(5, std::chrono::milliseconds(1000)));
+    ASSERT_TRUE(c3->WaitForMessages(5, std::chrono::milliseconds(1000)));
 
     c1->Send("/nick Alice"); c2->Send("/nick Bob"); c3->Send("/nick Charlie");
     ASSERT_TRUE(c1->WaitForSpecificMessage("닉네임이 'Alice'", std::chrono::milliseconds(1000)));
-    ASSERT_TRUE(c1->WaitForSpecificMessage("닉네임이 'Bob'", std::chrono::milliseconds(1000)));
-    ASSERT_TRUE(c1->WaitForSpecificMessage("닉네임이 'Charlie'", std::chrono::milliseconds(1000)));
-    ASSERT_TRUE(c2->WaitForSpecificMessage("닉네임이 'Charlie'", std::chrono::milliseconds(1000)));
+    ASSERT_TRUE(c1->WaitForSpecificMessage("사용자 'Alice'님이 입장했습니다.", std::chrono::milliseconds(1000)));
+    ASSERT_TRUE(c1->WaitForSpecificMessage("사용자 'Bob'님이 입장했습니다.", std::chrono::milliseconds(1000)));
+    ASSERT_TRUE(c1->WaitForSpecificMessage("사용자 'Charlie'님이 입장했습니다.", std::chrono::milliseconds(1000)));
+    ASSERT_TRUE(c2->WaitForSpecificMessage("닉네임이 'Bob'", std::chrono::milliseconds(1000)));
     ASSERT_TRUE(c3->WaitForSpecificMessage("닉네임이 'Charlie'", std::chrono::milliseconds(1000)));
     
     c1->ClearMessages();
@@ -860,14 +870,17 @@ TEST_F(ChatServerTest, TestQuitCommand) {
     auto client2 = std::make_shared<TestClient>(client_ioc_);
     ASSERT_TRUE(client1->Connect("127.0.0.1", test_port_));
     ASSERT_TRUE(client2->Connect("127.0.0.1", test_port_));
-    ASSERT_TRUE(client1->WaitForSpecificMessage("님이 입장했습니다.", std::chrono::milliseconds(2000)));
-    ASSERT_TRUE(client2->WaitForSpecificMessage("님이 입장했습니다.", std::chrono::milliseconds(2000)));
+    // Initial join messages removed - only sent after nickname is set
+    ASSERT_TRUE(client1->WaitForMessages(5, std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client2->WaitForMessages(5, std::chrono::milliseconds(2000)));
     client1->Send("/nick quitter");
     client2->Send("/nick observer");
     ASSERT_TRUE(client1->WaitForSpecificMessage("닉네임이 'quitter'", std::chrono::milliseconds(2000)));
     ASSERT_TRUE(client2->WaitForSpecificMessage("닉네임이 'observer'", std::chrono::milliseconds(2000)));
-    ASSERT_TRUE(client1->WaitForSpecificMessage("닉네임이 'observer'", std::chrono::milliseconds(2000)));
-    ASSERT_TRUE(client2->WaitForSpecificMessage("닉네임이 'quitter'", std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client1->WaitForSpecificMessage("사용자 'quitter'님이 입장했습니다.", std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client2->WaitForSpecificMessage("사용자 'observer'님이 입장했습니다.", std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client1->WaitForSpecificMessage("사용자 'observer'님이 입장했습니다.", std::chrono::milliseconds(2000)));
+    ASSERT_TRUE(client2->WaitForSpecificMessage("사용자 'quitter'님이 입장했습니다.", std::chrono::milliseconds(2000)));
 
     client1->ClearMessages();
     client2->ClearMessages();
@@ -892,14 +905,17 @@ TEST_F(ChatServerTest, TestAbruptDisconnect) {
     auto client2 = std::make_shared<TestClient>(client_ioc_);
     ASSERT_TRUE(client1->Connect("127.0.0.1", test_port_));
     ASSERT_TRUE(client2->Connect("127.0.0.1", test_port_));
-    ASSERT_TRUE(client1->WaitForSpecificMessage("님이 입장했습니다.", std::chrono::milliseconds(1000)));
-    ASSERT_TRUE(client2->WaitForSpecificMessage("님이 입장했습니다.", std::chrono::milliseconds(1000)));
+    // Initial join messages removed - only sent after nickname is set
+    ASSERT_TRUE(client1->WaitForMessages(5, std::chrono::milliseconds(1000)));
+    ASSERT_TRUE(client2->WaitForMessages(5, std::chrono::milliseconds(1000)));
     client1->Send("/nick dropper"); 
     client2->Send("/nick observer2");
     ASSERT_TRUE(client1->WaitForSpecificMessage("닉네임이 'dropper'", std::chrono::milliseconds(1000)));
     ASSERT_TRUE(client2->WaitForSpecificMessage("닉네임이 'observer2'", std::chrono::milliseconds(1000)));
-    ASSERT_TRUE(client1->WaitForSpecificMessage("닉네임이 'observer2'", std::chrono::milliseconds(1000))); // Wait for broadcasts too
-    ASSERT_TRUE(client2->WaitForSpecificMessage("닉네임이 'dropper'", std::chrono::milliseconds(1000)));
+    ASSERT_TRUE(client1->WaitForSpecificMessage("사용자 'dropper'님이 입장했습니다.", std::chrono::milliseconds(1000)));
+    ASSERT_TRUE(client2->WaitForSpecificMessage("사용자 'observer2'님이 입장했습니다.", std::chrono::milliseconds(1000)));
+    ASSERT_TRUE(client1->WaitForSpecificMessage("사용자 'observer2'님이 입장했습니다.", std::chrono::milliseconds(1000)));
+    ASSERT_TRUE(client2->WaitForSpecificMessage("사용자 'dropper'님이 입장했습니다.", std::chrono::milliseconds(1000)));
     client2->ClearMessages();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 

@@ -148,8 +148,12 @@ void ChatServer::join(SessionPtr session)
         sessions_.insert(session);
         spdlog::info("[ChatServer {}] Client '{}' ({}) joined. Total sessions: {}",
                 fmt::ptr(this), session->nickname(), session->remote_id(), sessions_.size());
-        std::string join_msg = "* 사용자 '" + session->nickname() + "'님이 입장했습니다.\r\n";
-        broadcast_impl(join_msg, session); });
+        
+        // Only broadcast join message if user has set a proper nickname (not IP:PORT)
+        if (session->nickname() != session->remote_id()) {
+            std::string join_msg = "* 사용자 '" + session->nickname() + "'님이 입장했습니다.\r\n";
+            broadcast_impl(join_msg, session);
+        } });
 }
 
 void ChatServer::leave(SessionPtr session)
@@ -172,7 +176,8 @@ void ChatServer::leave(SessionPtr session)
         if (erased_count > 0) {
             spdlog::info("[ChatServer {}] Client '{}' ({}) left. Session erased. Total sessions: {}",
                     fmt::ptr(this), nickname, remote_id, sessions_.size());
-            if (!nickname.empty()) {
+            // Only broadcast leave message if user had set a proper nickname (not IP:PORT)
+            if (!nickname.empty() && nickname != remote_id) {
                 std::string leave_msg = "* 사용자 '" + nickname + "'님이 퇴장했습니다.\r\n";
                 broadcast_impl(leave_msg, nullptr);
             }

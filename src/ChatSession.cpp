@@ -17,6 +17,7 @@
 #include <vector>
 #include <deque>
 #include <atomic>
+#include <fmt/format.h>
 
 namespace net = boost::asio;
 using tcp = net::ip::tcp;
@@ -64,8 +65,7 @@ void ChatSession::start()
     deliver("Please set your nickname using /nick <nickname>\r\n");
     deliver("Enter /help for a list of commands.\r\n");
     deliver("Enter /join <roomname> to join or create a room.\r\n");
-    // Add self-notification for joining
-    deliver(fmt::format("* 사용자 '{} '님이 입장했습니다.\r\n", nickname_)); // Use current nickname (initially remote_id_)
+    // Remove initial join notification - will be sent when nickname is set
 
     // Start reading asynchronously
     net::dispatch(strand_, [self = shared_from_this_chat()]() {
