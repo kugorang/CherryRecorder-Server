@@ -36,6 +36,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-setuptools \
     && rm -rf /var/lib/apt/lists/*
 
+# --- STEP 1.1: libevent 직접 빌드 (ECS 호환성) ---
+RUN cd /tmp && \
+    wget https://github.com/libevent/libevent/releases/download/release-2.1.12-stable/libevent-2.1.12-stable.tar.gz && \
+    tar -xzf libevent-2.1.12-stable.tar.gz && \
+    cd libevent-2.1.12-stable && \
+    ./configure --disable-epoll --disable-epollsig --enable-poll --enable-select && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd / && rm -rf /tmp/libevent*
+
 # --- STEP 1.5: 최신 CMake 설치 ---
 ARG CMAKE_VERSION=3.30.1
 RUN \
@@ -74,6 +85,9 @@ ENV VCPKG_DEFAULT_TRIPLET=x64-linux
 ENV VCPKG_DOWNLOADS_CONCURRENCY=8
 ENV VCPKG_BUILD_TYPE=release
 ENV VCPKG_INSTALL_OPTIONS="--x-use-aria2"
+# vcpkg 캐싱 개선
+ENV VCPKG_FEATURE_FLAGS="manifests,binarycaching"
+ENV VCPKG_KEEP_ENV_VARS="VCPKG_BINARY_SOURCES"
 
 # aria2c 설치 (더 빠른 다운로드를 위해)
 RUN apt-get update && apt-get install -y --no-install-recommends aria2 && rm -rf /var/lib/apt/lists/*
@@ -125,8 +139,11 @@ RUN --mount=type=cache,target=/root/.cache/vcpkg \
     --mount=type=cache,target=/opt/vcpkg/installed \
     --mount=type=cache,target=/app/build/vcpkg_installed \
     --mount=type=cache,target=/tmp/vcpkg \
-    # GitHub의 vcpkg 바이너리 캐시 사용은 CI 환경에서만 유효하므로 로컬 빌드를 위해 수정
-    export VCPKG_BINARY_SOURCES="clear;default,readwrite" && \
+    --mount=type=secret,id=VCPKG_BINARY_SOURCES \
+    # GitHub Actions에서 전달된 바이너리 캐시 사용
+    if [ -f /run/secrets/VCPKG_BINARY_SOURCES ]; then \
+        export VCPKG_BINARY_SOURCES=$(cat /run/secrets/VCPKG_BINARY_SOURCES); \
+    fi && \
     # 1. vcpkg로 의존성 명시적 설치 (이 단계에서 Ninja, CXX 컴파일러 필요)
     /opt/vcpkg/vcpkg install --triplet x64-linux --clean-after-build && \
     # 2. CMake 실행 (이미 패키지가 설치되었으므로 빠르게 진행)
@@ -185,6 +202,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Builder 스테이지에서 빌드된 vcpkg 라이브러리 전체 복사
 COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/*.so* /usr/local/lib/
 
+# libevent 라이브러리 복사 (직접 빌드한 버전)
+COPY --from=builder /usr/local/lib/libevent* /usr/local/lib/
+
 # 라이브러리 캐시 업데이트
 RUN ldconfig
 
@@ -204,20 +224,28 @@ RUN mkdir -p history && chown appuser:appuser history
 # 사용자 전환
 USER appuser
 
-# ECS/Fargate 환경에서 epoll 문제 해결을 위한 환경 변수 설정
-# EventBase backend 설정 - select 백엔드 사용
-ENV FOLLY_EVENTBASE_BACKEND=select
+# ECS/EC2 환경에서 libevent/Proxygen 실행을 위한 환경 변수 설정
+# EventBase backend 설정 - poll 백엔드 우선 사용
+ENV FOLLY_EVENTBASE_BACKEND=poll
 ENV FOLLY_DISABLE_EPOLL=1
 ENV FOLLY_USE_EPOLL=0
 # libevent 백엔드 강제 설정
 ENV EVENT_NOKQUEUE=1
 ENV EVENT_NOPOLL=0
+ENV EVENT_NODEVPOLL=1
+ENV EVENT_NOEVPORT=1
 ENV EVENT_NOSELECT=0
 ENV EVENT_NOEPOLL=1
+# libevent 디버깅
+ENV EVENT_DEBUG_MODE=1
+ENV EVENT_SHOW_METHOD=1
 # 추가 디버깅을 위한 로깅
 ENV GLOG_minloglevel=0
 ENV GLOG_v=2
 ENV GLOG_logtostderr=1
+# ECS 네트워킹 모드를 위한 추가 설정
+ENV FOLLY_EVENTBASE_THREAD_FACTORY_BACKEND=std
+ENV FOLLY_DISABLE_THREAD_LOCAL_SINGLETON_CTOR=1
 
 # 기본 포트 노출 (HTTP, WS)
 EXPOSE 8080 33334

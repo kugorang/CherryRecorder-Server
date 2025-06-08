@@ -5,7 +5,13 @@
 #include <memory>
 #include <thread>
 #include <iostream>
+#include <fstream>
+#include <cstdlib>
+#include <sys/utsname.h>
+#include <sys/resource.h>
 #include <boost/asio/io_context.hpp>
+#include <event2/event.h>
+#include <event2/thread.h>
 #include "ProxygenHttpServer.hpp"
 #include "ChatServer.hpp"
 #include "../include/WebSocketListener.hpp"
@@ -37,21 +43,125 @@ void signalHandler(int signum) {
 }
 
 int main(int argc, char* argv[]) {
-    // ECS 환경에서 epoll 문제 해결을 위한 설정
-    // select 백엔드 사용 강제 (ECS Fargate 호환성)
-    setenv("FOLLY_EVENTBASE_BACKEND", "select", 1);
+    // libevent 스레드 지원 초기화 (Proxygen 초기화 전에 필수)
+    if (evthread_use_pthreads() != 0) {
+        LOG(ERROR) << "Failed to initialize libevent threading support";
+        return 1;
+    }
+    
+    // libevent 버전 및 메서드 확인
+    LOG(INFO) << "libevent version: " << event_get_version();
+    
+    // 시스템 정보 출력 (ECS 디버깅용)
+    LOG(INFO) << "=== System Information ===";
+    
+    // 커널 버전
+    struct utsname unameData;
+    if (uname(&unameData) == 0) {
+        LOG(INFO) << "Kernel: " << unameData.sysname << " " << unameData.release 
+                  << " " << unameData.version;
+        LOG(INFO) << "Architecture: " << unameData.machine;
+    }
+    
+    // CPU 정보
+    int num_cpus = std::thread::hardware_concurrency();
+    LOG(INFO) << "CPU cores: " << num_cpus;
+    
+    // 메모리 정보
+    std::ifstream meminfo("/proc/meminfo");
+    std::string line;
+    if (meminfo.is_open()) {
+        while (std::getline(meminfo, line) && 
+               (line.find("MemTotal:") == 0 || line.find("MemAvailable:") == 0)) {
+            LOG(INFO) << line;
+        }
+        meminfo.close();
+    }
+    
+    // 파일 디스크립터 제한
+    struct rlimit rlim;
+    if (getrlimit(RLIMIT_NOFILE, &rlim) == 0) {
+        LOG(INFO) << "File descriptor limits - soft: " << rlim.rlim_cur 
+                  << ", hard: " << rlim.rlim_max;
+    }
+    
+    // /dev 디렉토리 확인 (event 메커니즘 관련)
+    LOG(INFO) << "Checking /dev for event mechanisms:";
+    system("ls -la /dev/ | grep -E '(epoll|poll|select|null|zero|random)' | head -10");
+    
+    LOG(INFO) << "=========================";
+    
+    // 사용 가능한 이벤트 메서드 확인
+    const char** methods = event_get_supported_methods();
+    LOG(INFO) << "Supported event methods:";
+    for (int i = 0; methods[i] != nullptr; i++) {
+        LOG(INFO) << "  - " << methods[i];
+    }
+    
+    // ECS 환경에서 libevent 초기화 문제 해결을 위한 설정
+    // 환경 변수가 이미 설정되어 있으면 그것을 사용
+    const char* backend = std::getenv("FOLLY_EVENTBASE_BACKEND");
+    if (!backend) {
+        // poll을 우선 시도 (ECS EC2에서 더 잘 작동)
+        setenv("FOLLY_EVENTBASE_BACKEND", "poll", 1);
+    }
+    
+    // libevent 백엔드 설정 - poll과 select만 활성화
+    setenv("EVENT_NOEPOLL", "1", 1);     // epoll 비활성화
+    setenv("EVENT_NOKQUEUE", "1", 1);    // kqueue 비활성화
+    setenv("EVENT_NODEVPOLL", "1", 1);   // devpoll 비활성화
+    setenv("EVENT_NOEVPORT", "1", 1);    // evport 비활성화
+    setenv("EVENT_NOPOLL", "0", 1);      // poll 활성화
+    setenv("EVENT_NOSELECT", "0", 1);    // select 활성화
+    
+    // libevent 디버깅 활성화
+    setenv("EVENT_DEBUG_MODE", "1", 1);
+    setenv("EVENT_SHOW_METHOD", "1", 1);
+    
+    // Folly 추가 설정
     setenv("FOLLY_DISABLE_EPOLL", "1", 1);
     setenv("FOLLY_USE_EPOLL", "0", 1);
-    // libevent 백엔드 설정
-    setenv("EVENT_NOEPOLL", "1", 1);
-    setenv("EVENT_NOSELECT", "0", 1);
+    
+    // 테스트용 event_base 생성 (명시적 설정 사용)
+    struct event_config* cfg = event_config_new();
+    if (cfg) {
+        // epoll 메서드 명시적 비활성화
+        event_config_avoid_method(cfg, "epoll");
+        event_config_avoid_method(cfg, "epollsig");
+        
+        // poll과 select만 사용하도록 설정
+        event_config_require_features(cfg, 0); // 특별한 기능 요구사항 없음
+        
+        struct event_base* test_base = event_base_new_with_config(cfg);
+        if (test_base) {
+            const char* method = event_base_get_method(test_base);
+            LOG(INFO) << "Test event_base using method: " << (method ? method : "unknown");
+            event_base_free(test_base);
+        } else {
+            LOG(ERROR) << "Failed to create test event_base with config!";
+            // 설정 없이 재시도
+            test_base = event_base_new();
+            if (test_base) {
+                const char* method = event_base_get_method(test_base);
+                LOG(INFO) << "Default event_base using method: " << (method ? method : "unknown");
+                event_base_free(test_base);
+            } else {
+                LOG(FATAL) << "Cannot create any event_base! Check system configuration.";
+                return 1;
+            }
+        }
+        event_config_free(cfg);
+    }
     
     // Folly/glog/gflags 초기화
     folly::Init init(&argc, &argv, true);
     
-    LOG(INFO) << "CherryRecorder Server v1.1 - WEBSOCKET_FIX_APPLIED (Proxygen)";
-    LOG(INFO) << "EventBase backend: " << getenv("FOLLY_EVENTBASE_BACKEND");
-    LOG(INFO) << "FOLLY_DISABLE_EPOLL: " << getenv("FOLLY_DISABLE_EPOLL");
+    LOG(INFO) << "CherryRecorder Server v1.4 - ECS_EC2_LIBEVENT_CUSTOM (Proxygen)";
+    LOG(INFO) << "EventBase backend: " << (getenv("FOLLY_EVENTBASE_BACKEND") ? getenv("FOLLY_EVENTBASE_BACKEND") : "default");
+    LOG(INFO) << "FOLLY_DISABLE_EPOLL: " << (getenv("FOLLY_DISABLE_EPOLL") ? getenv("FOLLY_DISABLE_EPOLL") : "not set");
+    LOG(INFO) << "EVENT_NOEPOLL: " << (getenv("EVENT_NOEPOLL") ? getenv("EVENT_NOEPOLL") : "not set");
+    LOG(INFO) << "EVENT_NOPOLL: " << (getenv("EVENT_NOPOLL") ? getenv("EVENT_NOPOLL") : "not set");
+    LOG(INFO) << "EVENT_NOSELECT: " << (getenv("EVENT_NOSELECT") ? getenv("EVENT_NOSELECT") : "not set");
     
     LOG(INFO) << "===========================================";
     LOG(INFO) << "CherryRecorder Server (Proxygen Edition)";

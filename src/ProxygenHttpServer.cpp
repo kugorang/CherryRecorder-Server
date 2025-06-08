@@ -2,6 +2,7 @@
 #include <folly/portability/GFlags.h>
 #include <folly/init/Init.h>
 #include <folly/String.h>
+#include <folly/io/async/EventBase.h>
 #include <glog/logging.h>
 #include <thread>
 #include <cstdlib>
@@ -244,6 +245,8 @@ ProxygenHttpServer::~ProxygenHttpServer() {
 }
 
 void ProxygenHttpServer::start(const std::string& cert_path, const std::string& key_path) {
+    LOG(INFO) << "ProxygenHttpServer::start() called";
+    
     std::vector<proxygen::HTTPServer::IPConfig> IPs;
     
     // HTTP 서버 설정
@@ -283,19 +286,48 @@ void ProxygenHttpServer::start(const std::string& cert_path, const std::string& 
         .build();
     opts->h2cEnabled = true;
     
+    LOG(INFO) << "Creating HTTPServer instance...";
+    
+    // EventBase 테스트 (Proxygen이 사용할 것과 동일한 방식)
+    try {
+        folly::EventBase test_evb;
+        LOG(INFO) << "Test EventBase created successfully";
+        LOG(INFO) << "EventBase backend in use: " << test_evb.getBackend();
+    } catch (const std::exception& e) {
+        LOG(ERROR) << "Failed to create test EventBase: " << e.what();
+    }
+    
     // 서버 생성
     http_server_ = std::make_unique<proxygen::HTTPServer>(std::move(*opts));
 
+    LOG(INFO) << "Creating IO thread pool with " << threads_ << " threads...";
+    
     // IO 스레드 풀 생성
-    auto io_thread_pool = std::make_shared<folly::IOThreadPoolExecutor>(threads_);
+    auto io_thread_pool = std::make_shared<folly::IOThreadPoolExecutor>(
+        threads_,
+        std::make_shared<folly::NamedThreadFactory>("ProxygenIO")
+    );
+    
+    LOG(INFO) << "Binding to ports...";
     
     // 서버 생성 및 시작
-    http_server_->bind(IPs);
+    try {
+        http_server_->bind(IPs);
+        LOG(INFO) << "Successfully bound to ports";
+    } catch (const std::exception& e) {
+        LOG(ERROR) << "Failed to bind: " << e.what();
+        throw;
+    }
     
     // 비동기로 서버 시작
     std::thread([this]() {
-        LOG(INFO) << "Starting HTTP/HTTPS server...";
-        http_server_->start();
+        LOG(INFO) << "Starting HTTP/HTTPS server thread...";
+        try {
+            http_server_->start();
+            LOG(INFO) << "HTTP/HTTPS server thread started successfully";
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "HTTP/HTTPS server thread error: " << e.what();
+        }
     }).detach();
     
     LOG(INFO) << "Server started with " << threads_ << " threads";

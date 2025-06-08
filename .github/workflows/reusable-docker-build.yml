@@ -125,6 +125,24 @@ jobs:
         id: buildx # ID는 그대로 유지하거나 변경해도 무방
         uses: docker/setup-buildx-action@v3
 
+      # vcpkg 바이너리 캐시 설정 (Docker 빌드 전에 추가)
+      - name: Setup vcpkg binary cache
+        run: |
+          # GitHub Actions 캐시를 위한 디렉토리 생성
+          mkdir -p ${{ github.workspace }}/vcpkg-cache
+          echo "VCPKG_BINARY_SOURCES=clear;files,${{ github.workspace }}/vcpkg-cache,readwrite" >> $GITHUB_ENV
+        shell: bash
+
+      # vcpkg 바이너리 캐시 복원
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v3
+        with:
+          path: ${{ github.workspace }}/vcpkg-cache
+          key: vcpkg-binaries-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}-${{ hashFiles('**/vcpkg-configuration.json') }}
+          restore-keys: |
+            vcpkg-binaries-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}-
+            vcpkg-binaries-${{ runner.os }}-
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -194,9 +212,13 @@ jobs:
           tags: ${{ steps.set-names.outputs.ghcr_image_sha }}
           push: true # 항상 GHCR에는 푸시 (캐싱 및 후속 작업 기반)
           # GHCR을 캐시 소스 및 대상으로 사용
-          cache-from: type=registry,ref=${{ steps.set-names.outputs.ghcr_cache_ref }}
-          # 캐시 저장 설정 (mode=min: 변경된 레이어만 저장, max: 모든 레이어 저장)
-          cache-to: type=registry,ref=${{ steps.set-names.outputs.ghcr_cache_ref }},mode=min
+          cache-from: |
+            type=registry,ref=${{ steps.set-names.outputs.ghcr_cache_ref }}
+            type=gha
+          # 캐시 저장 설정 (mode=max로 변경하여 모든 레이어 저장)
+          cache-to: |
+            type=registry,ref=${{ steps.set-names.outputs.ghcr_cache_ref }},mode=max
+            type=gha,mode=max
           provenance: false # SBOM/Provenance 비활성화 (필요 시 true)
           sbom: false      # SBOM/Provenance 비활성화 (필요 시 true)
           # BuildKit 인라인 캐시 활성화 및 빌드 인수 전달
@@ -205,6 +227,12 @@ jobs:
             BUILD_ID=${{ steps.build-id.outputs.source_hash }}
             GIT_COMMIT=${{ github.sha }}
             SOURCE_DATE_EPOCH=${{ steps.source_date.outputs.epoch }}
+            VCPKG_BINARY_SOURCES=clear;files,${{ github.workspace }}/vcpkg-cache,readwrite
+          # 빌드킷 설정
+          builder: ${{ steps.buildx.outputs.name }}
+          # 추가 빌드 캐시 마운트
+          secret-envs: |
+            VCPKG_BINARY_SOURCES
           # 이미지 레이블 설정
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}

@@ -243,6 +243,10 @@ if(NOT WIN32)
 endif()
 message(STATUS "Configured target: CherryRecorder-Server-App executable (Beast-based)")
 
+# CherryRecorder-App 별칭 추가 (Dockerfile 호환성)
+add_executable(CherryRecorder-App ALIAS CherryRecorder-Server-App)
+message(STATUS "Created alias: CherryRecorder-App -> CherryRecorder-Server-App")
+
 # 비-Windows 전용 실행 파일 (Proxygen 기반)
 if(NOT WIN32)
     add_executable(CherryRecorder-Proxygen-App)

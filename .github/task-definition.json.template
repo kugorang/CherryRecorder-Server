@@ -6,6 +6,10 @@
   "requiresCompatibilities": [ "EC2" ],
   "pidMode": "host",
   "ipcMode": "host",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
   "containerDefinitions": [
     {
       "name": "$CONTAINER_NAME",
@@ -22,13 +26,51 @@
             "SYS_ADMIN"
           ]
         },
-        "initProcessEnabled": true
+        "initProcessEnabled": true,
+        "sharedMemorySize": 256,
+        "tmpfs": [
+          {
+            "containerPath": "/tmp",
+            "size": 512
+          }
+        ],
+        "systemControls": [
+          {
+            "namespace": "net.core.somaxconn",
+            "value": "1024"
+          },
+          {
+            "namespace": "net.ipv4.tcp_tw_reuse",
+            "value": "1"
+          },
+          {
+            "namespace": "net.ipv4.tcp_fin_timeout",
+            "value": "30"
+          },
+          {
+            "namespace": "net.ipv4.tcp_keepalive_time",
+            "value": "600"
+          }
+        ]
       },
+      "dockerSecurityOptions": [
+        "seccomp=unconfined"
+      ],
       "ulimits": [
         {
           "name": "nofile",
           "softLimit": 65536,
           "hardLimit": 65536
+        },
+        {
+          "name": "nproc",
+          "softLimit": 4096,
+          "hardLimit": 4096
+        },
+        {
+          "name": "memlock",
+          "softLimit": -1,
+          "hardLimit": -1
         }
       ],
       "portMappings": [
