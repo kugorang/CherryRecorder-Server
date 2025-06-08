@@ -57,6 +57,14 @@ on:
         required: true
         type: string
         description: ECS 태스크 정의 패밀리 이름
+      subnet_ids:
+        required: false
+        type: string
+        description: Comma-separated list of subnet IDs for awsvpc network mode
+      security_group_ids:
+        required: false
+        type: string
+        description: Comma-separated list of security group IDs for awsvpc network mode
     # 비밀값 정의
     secrets:
       aws_role_to_assume:
@@ -123,8 +131,8 @@ jobs:
              '.
               | .containerDefinitions[0].image = $image
               | .containerDefinitions[0].portMappings = [
-                 { "containerPort": ($http_port | tonumber), "hostPort": 0, "protocol": "tcp", "name": "http" },
-                 { "containerPort": ($websocket_port | tonumber), "hostPort": 0, "protocol": "tcp", "name": "websocket" }
+                 { "containerPort": ($http_port | tonumber), "protocol": "tcp", "name": "http" },
+                 { "containerPort": ($websocket_port | tonumber), "protocol": "tcp", "name": "websocket" }
                ]
               | .containerDefinitions[0].environment = (.containerDefinitions[0].environment | map(
                  if .name == "HTTP_PORT" then .value = $http_port
@@ -198,7 +206,8 @@ jobs:
                   --service-name ${{ inputs.ecs_service_name }} \
                   --task-definition ${{ steps.register-task.outputs.task_def_arn }} \
                   --desired-count 1 \
-                  --deployment-configuration "maximumPercent=200,minimumHealthyPercent=100"
+                  --deployment-configuration "maximumPercent=200,minimumHealthyPercent=100" \
+                  --network-configuration "awsvpcConfiguration={subnets=[${{ inputs.subnet_ids }}],securityGroups=[${{ inputs.security_group_ids }}],assignPublicIp=DISABLED}"
               else
                 # 다른 에러인 경우 실패
                 echo "Service update failed with non-port related error"
@@ -212,7 +221,8 @@ jobs:
               --service-name ${{ inputs.ecs_service_name }} \
               --task-definition ${{ steps.register-task.outputs.task_def_arn }} \
               --desired-count 1 \
-              --deployment-configuration "maximumPercent=200,minimumHealthyPercent=100"
+              --deployment-configuration "maximumPercent=200,minimumHealthyPercent=100" \
+              --network-configuration "awsvpcConfiguration={subnets=[${{ inputs.subnet_ids }}],securityGroups=[${{ inputs.security_group_ids }}],assignPublicIp=DISABLED}"
           fi
           
           echo "Service update/creation completed."

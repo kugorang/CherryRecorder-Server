@@ -1,25 +1,44 @@
 {
   "family": "$FAMILY",
   "executionRoleArn": "$EXECUTION_ROLE_ARN",
-  "networkMode": "bridge",
+  "taskRoleArn": "$EXECUTION_ROLE_ARN",
+  "networkMode": "awsvpc",
   "requiresCompatibilities": [ "EC2" ],
+  "pidMode": "host",
+  "ipcMode": "host",
   "containerDefinitions": [
     {
       "name": "$CONTAINER_NAME",
       "image": "placeholder",
       "cpu": 400,
       "memory": 400,
+      "memoryReservation": 300,
       "essential": true,
+      "linuxParameters": {
+        "capabilities": {
+          "add": [
+            "SYS_PTRACE",
+            "NET_ADMIN",
+            "SYS_ADMIN"
+          ]
+        },
+        "initProcessEnabled": true
+      },
+      "ulimits": [
+        {
+          "name": "nofile",
+          "softLimit": 65536,
+          "hardLimit": 65536
+        }
+      ],
       "portMappings": [
         {
           "containerPort": 8080,
-          "hostPort": 0,
           "protocol": "tcp",
           "name": "http"
         },
         {
           "containerPort": 33334,
-          "hostPort": 0,
           "protocol": "tcp",
           "name": "websocket"
         }

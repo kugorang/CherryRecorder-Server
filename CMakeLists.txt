@@ -221,26 +221,27 @@ message(STATUS "Configured target: ChatServerLib library (WebSocket Chat)")
 # 실행 파일 타겟 정의
 # ----------------------------------------------------------------------
 
-# Windows 전용 실행 파일 (Boost.Beast 기반)
-if(WIN32)
-    add_executable(CherryRecorder-Server-App)
-    target_sources(CherryRecorder-Server-App 
-        PRIVATE
-            src/main.cpp
-    )
-    target_include_directories(CherryRecorder-Server-App 
-        PRIVATE 
-            ${Boost_INCLUDE_DIRS}
-    )
-    target_link_libraries(CherryRecorder-Server-App
-        PRIVATE
-            ChatServerLib
-            HttpServerLib
-            OpenSSL::SSL
-            OpenSSL::Crypto
-    )
-    message(STATUS "Configured target: CherryRecorder-Server-App executable for Windows")
+# Beast 기반 실행 파일 (모든 플랫폼)
+add_executable(CherryRecorder-Server-App)
+target_sources(CherryRecorder-Server-App 
+    PRIVATE
+        src/main.cpp
+)
+target_include_directories(CherryRecorder-Server-App 
+    PRIVATE 
+        ${Boost_INCLUDE_DIRS}
+)
+target_link_libraries(CherryRecorder-Server-App
+    PRIVATE
+        ChatServerLib
+        HttpServerLib
+        OpenSSL::SSL
+        OpenSSL::Crypto
+)
+if(NOT WIN32)
+    target_link_libraries(CherryRecorder-Server-App PRIVATE Threads::Threads)
 endif()
+message(STATUS "Configured target: CherryRecorder-Server-App executable (Beast-based)")
 
 # 비-Windows 전용 실행 파일 (Proxygen 기반)
 if(NOT WIN32)

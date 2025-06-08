@@ -46,6 +46,10 @@ name: CI/CD - CherryRecorder Server Orchestrator
 #                      (reusable-deploy-aws 워크플로우가 Task Definition 템플릿 렌더링 시 사용)
 # CONTAINER_NAME:      Task Definition 내에서 정의된 주 애플리케이션 컨테이너의 이름.
 #                      (reusable-deploy-aws 워크플로우가 Task Definition 템플릿 렌더링 시 사용)
+# SUBNET_IDS:          awsvpc 네트워크 모드를 위한 서브넷 ID 목록 (쉼표로 구분).
+#                      (reusable-deploy-aws 에서 사용)
+# SECURITY_GROUP_IDS:  awsvpc 네트워크 모드를 위한 보안 그룹 ID 목록 (쉼표로 구분).
+#                      (reusable-deploy-aws 에서 사용)
 #
 # [애플리케이션 포트 및 접속 정보]
 # SERVER_ADDRESS:      배포 완료 후 접속 테스트에 사용할 서버의 주소 (보통 NLB DNS 이름).
@@ -220,6 +224,9 @@ jobs:
       https_port_value: ${{ vars.HTTPS_PORT_VALUE }}
       # WebSocket 포트 사용 (33334)
       websocket_port_value: ${{ vars.WS_PORT_VALUE }}
+      # 네트워크 구성 (awsvpc 모드)
+      subnet_ids: ${{ vars.SUBNET_IDS }}
+      security_group_ids: ${{ vars.SECURITY_GROUP_IDS }}
     secrets:
       # AWS OIDC 역할 ARN
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
