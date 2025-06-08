@@ -36,29 +36,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-setuptools \
     && rm -rf /var/lib/apt/lists/*
 
-# --- STEP 1.1: libevent 직접 빌드 (ECS 호환성) ---
-RUN cd /tmp && \
-    wget https://github.com/libevent/libevent/releases/download/release-2.1.12-stable/libevent-2.1.12-stable.tar.gz && \
-    tar -xzf libevent-2.1.12-stable.tar.gz && \
-    cd libevent-2.1.12-stable && \
-    ./configure --disable-epoll --disable-epollsig --enable-poll --enable-select \
-                --disable-kqueue --disable-devpoll --disable-evport \
-                --enable-thread-support --enable-debug-mode \
-                --prefix=/usr/local && \
-    make -j$(nproc) && \
-    make install && \
-    ldconfig && \
-    # libevent 설치 확인
-    ls -la /usr/local/lib/libevent* && \
-    ls -la /usr/local/include/event* && \
-    # pkg-config 파일 확인
-    ls -la /usr/local/lib/pkgconfig/libevent* && \
-    cd / && rm -rf /tmp/libevent*
-
-# libevent를 찾을 수 있도록 환경 변수 설정
-ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH}"
-ENV LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"
-
 # --- STEP 1.5: 최신 CMake 설치 ---
 ARG CMAKE_VERSION=3.30.1
 RUN \
@@ -93,7 +70,7 @@ ENV VCPKG_BINARY_SOURCES="clear;default,readwrite"
 ARG VCPKG_MAX_CONCURRENCY=4
 ENV VCPKG_MAX_CONCURRENCY=${VCPKG_MAX_CONCURRENCY}
 ENV VCPKG_DISABLE_METRICS=1
-ENV VCPKG_DEFAULT_TRIPLET=x64-linux
+ENV VCPKG_DEFAULT_TRIPLET=x64-linux-ecs
 # 추가 최적화: 병렬 다운로드 증가, 빌드 타입 최적화
 ENV VCPKG_DOWNLOADS_CONCURRENCY=8
 ENV VCPKG_BUILD_TYPE=release
@@ -111,6 +88,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends aria2 && rm -rf
 WORKDIR /app
 COPY vcpkg.json .
 COPY CMakeLists.txt .
+# 커스텀 triplet 파일 복사
+COPY x64-linux-ecs.cmake /opt/vcpkg/triplets/
 
 # 더미 소스 파일 및 디렉토리 생성 (CMake 구성이 실패하지 않도록)
 # CMakeLists.txt에 명시된 모든 소스 파일 경로를 기반으로 빈 파일을 생성합니다.
@@ -157,18 +136,16 @@ RUN --mount=type=cache,target=/root/.cache/vcpkg \
     if [ -f /run/secrets/VCPKG_BINARY_SOURCES ]; then \
         export VCPKG_BINARY_SOURCES=$(cat /run/secrets/VCPKG_BINARY_SOURCES); \
     fi && \
-    # 1. vcpkg로 의존성 명시적 설치 (이 단계에서 Ninja, CXX 컴파일러 필요)
-    /opt/vcpkg/vcpkg install --triplet x64-linux --clean-after-build && \
-    # 2. CMake 실행 - 우리가 빌드한 libevent를 우선 사용하도록 설정
+    # 1. vcpkg로 의존성 명시적 설치 (ECS 호환 triplet 사용)
+    /opt/vcpkg/vcpkg install --triplet x64-linux-ecs --clean-after-build && \
+    # 2. CMake 실행
     cmake -S . -B build \
       -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
-      -DVCPKG_TARGET_TRIPLET=x64-linux \
+      -DVCPKG_TARGET_TRIPLET=x64-linux-ecs \
       -DBUILD_TESTING=OFF \
-      -DCMAKE_VERBOSE_MAKEFILE=ON \
-      -DCMAKE_PREFIX_PATH="/usr/local" \
-      -DLibevent_DIR="/usr/local/lib/cmake/libevent" && \
+      -DCMAKE_VERBOSE_MAKEFILE=ON && \
     # 설치된 패키지 정보 출력
     echo "Installed vcpkg packages:" && \
     /opt/vcpkg/vcpkg list
@@ -217,13 +194,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Builder 스테이지에서 빌드된 vcpkg 라이브러리 전체 복사
-COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/*.so* /usr/local/lib/
-
-# libevent 라이브러리 복사 (직접 빌드한 버전)
-COPY --from=builder /usr/local/lib/libevent* /usr/local/lib/
-
-# vcpkg의 libevent가 복사되었다면 제거 (우리가 빌드한 버전 우선)
-RUN rm -f /usr/local/lib/libevent-2.2* || true
+COPY --from=builder /app/build/vcpkg_installed/x64-linux-ecs/lib/*.so* /usr/local/lib/
 
 # 라이브러리 캐시 업데이트
 RUN ldconfig
