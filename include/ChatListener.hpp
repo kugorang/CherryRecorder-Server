@@ -22,9 +22,12 @@ namespace beast = boost::beast;
  */
 class ChatListener : public std::enable_shared_from_this<ChatListener>
 {
+    /// @brief 비동기 I/O 작업을 위한 io_context.
     net::io_context& ioc_;
+    /// @brief 들어오는 연결을 수락하는 acceptor.
     tcp::acceptor acceptor_;
-    std::shared_ptr<ChatServer> server_; // 세션 생성 시 ChatServer 참조 전달용
+    /// @brief ChatServer의 공유 포인터. 세션 생성 시 필요.
+    std::shared_ptr<ChatServer> server_;
 
 public:
     /**

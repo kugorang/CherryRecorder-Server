@@ -28,9 +28,13 @@ class HttpsSession;
  */
 class HttpsListener : public std::enable_shared_from_this<HttpsListener>
 {
+    /// @brief 비동기 I/O 작업을 위한 io_context.
     net::io_context& ioc_;
+    /// @brief SSL 통신을 위한 SSL context.
     ssl::context& ctx_;
+    /// @brief 들어오는 연결을 수락하는 acceptor.
     tcp::acceptor acceptor_;
+    /// @brief Places API 요청을 처리하는 핸들러의 공유 포인터.
     std::shared_ptr<PlacesApiHandler> places_handler_;
 
 public:
@@ -88,16 +92,26 @@ public:
     void stop();
 
 private:
+    /// @brief 서버가 바인딩할 IP 주소.
     std::string address_;
+    /// @brief 서버가 리슨할 포트 번호.
     unsigned short port_;
+    /// @brief I/O 작업을 처리할 스레드 수.
     int threads_;
+    /// @brief SSL 인증서 파일 경로.
     std::string cert_file_;
+    /// @brief SSL 개인키 파일 경로.
     std::string key_file_;
+    /// @brief Diffie-Hellman 파라미터 파일 경로.
     std::string dh_file_;
 
+    /// @brief 비동기 I/O 작업을 위한 io_context.
     net::io_context ioc_;
+    /// @brief SSL 통신을 위한 SSL context.
     ssl::context ctx_{ssl::context::tlsv12};
+    /// @brief I/O 스레드들을 관리하는 벡터.
     std::vector<std::thread> io_threads_;
+    /// @brief HTTPS 연결 리스너의 공유 포인터.
     std::shared_ptr<HttpsListener> listener_{nullptr};
     
     /**

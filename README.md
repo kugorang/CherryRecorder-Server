@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-green.svg)](LICENSE.txt)
 [![C++](https://img.shields.io/badge/C++-20-blue.svg)](https://isocpp.org/)
 
-C++20으로 구현된 CherryRecorder의 고성능 백엔드 서버입니다. 위치 기반 서비스와 실시간 채팅 기능을 제공합니다.
+C++20과 Proxygen 프레임워크로 구현된 CherryRecorder의 고성능 백엔드 서버입니다. 위치 기반 서비스와 실시간 채팅 기능을 제공합니다.
 
 ## 📋 목차
 
@@ -22,128 +22,96 @@ C++20으로 구현된 CherryRecorder의 고성능 백엔드 서버입니다. 위
 
 ## 📱 프로젝트 소개
 
-CherryRecorder Server는 사용자의 위치 기반 혜택 정보를 관리하고, 실시간 채팅 서비스를 제공하는 고성능 백엔드 시스템입니다. 최근 Proxygen 프레임워크로 마이그레이션하여 성능과 확장성이 크게 향상되었습니다.
+CherryRecorder Server는 Flutter 클라이언트 앱을 위한 백엔드 시스템입니다. 사용자의 위치 기반 혜택 정보를 관리하고, 실시간 채팅 서비스를 제공하는 고성능 서버입니다. Facebook의 Proxygen 프레임워크를 기반으로 하여 뛰어난 성능과 확장성을 제공합니다.
 
 ### 주요 기능
 
-1. **🌐 HTTP/HTTPS API 서버 (포트 8080)**
-   - Proxygen 기반 고성능 HTTP 서버
-   - 헬스체크 엔드포인트 (`/health`)
-   - Google Places API 프록시 (개선됨)
-     - `/places/nearby` - 주변 장소 검색 (필터링 옵션 추가)
-     - `/places/search` - 텍스트 기반 장소 검색
-     - `/places/details` - 장소 상세 정보
-   - 향상된 오류 처리 및 응답 포맷
+1.  **🌐 고성능 HTTP/WebSocket 서버**
+    - Proxygen 기반의 멀티스레드 I/O 처리
+    - `/health` 헬스체크 엔드포인트
+    - SSL/TLS 암호화 지원 (HTTPS/WSS)
 
-2. **💬 WebSocket 채팅 서버**
-   - Proxygen WebSocket 핸들러 기반
-   - 실시간 메시지 전송
-   - 닉네임 기반 사용자 관리
-   - 향상된 연결 관리 및 안정성
-   - SSL/TLS 지원
+2.  **🗺️ Google Places API 프록시**
+    - 클라이언트의 API 키 노출 없이 안전하게 Google Places API 사용
+    - `/places/nearby`: 주변 장소 검색
+    - `/places/search`: 텍스트 기반 장소 검색
+    - `/places/details`: 장소 상세 정보
 
-3. **🔒 보안 및 성능**
-   - SSL/TLS 암호화 지원
-   - 멀티스레드 처리로 향상된 동시성
-   - 비동기 I/O 기반 고성능 처리
+3.  **💬 실시간 채팅 서버**
+    - WebSocket 기반 양방향 통신
+    - 닉네임 기반 사용자 관리 및 채팅방 기능
+    - 파일 시스템 기반 채팅 히스토리 저장
 
-## 🏗️ 아키텍처
+## 🏗️ 아키텍처 (AWS ECS 기반)
+
+```mermaid
+graph TD
+    subgraph "User"
+        U[Web/Mobile Client]
+    end
+
+    subgraph "AWS Cloud"
+        ALB[Application Load Balancer]
+        subgraph "Amazon ECS (EC2 Mode)"
+            ECS[ECS Service]
+            T[Task: CherryRecorder-Server]
+        end
+        ECR[Amazon ECR]
+        subgraph "External Services"
+            G[Google Maps & Places API]
+        end
+    end
+
+    U -- HTTPS/WSS --> ALB
+    ALB -- HTTP/WS --> T
+    ECS -- Pulls Image --> ECR
+    T -- API Call --> G
+```
 
 ### 기술 스택
 
-- **언어**: C++20
-- **빌드 시스템**: CMake 3.20+
-- **패키지 관리**: vcpkg
-- **주요 라이브러리**:
-  - **Proxygen** (Facebook의 고성능 HTTP 프레임워크)
-  - **Folly** (Facebook의 C++ 라이브러리)
-  - Boost.Beast (레거시 지원)
-  - Boost.Asio (비동기 I/O)
-  - OpenSSL (TLS/SSL)
-  - nlohmann/json (JSON 처리)
-  - Google Test (단위 테스트)
-- **문서화**: Doxygen
-- **컨테이너**: Docker
-- **CI/CD**: GitHub Actions
-- **배포**: AWS ECS
-
-### 프로젝트 구조
-
-```
-CherryRecorder-Server/
-├── .github/
-│   ├── workflows/           # CI/CD 워크플로우
-│   └── task-definition.json.template
-├── docs/
-│   ├── Doxyfile            # Doxygen 설정
-│   └── PROXYGEN_MIGRATION.md  # Proxygen 마이그레이션 가이드
-├── include/                # 헤더 파일
-│   ├── ProxygenHttpServer.hpp  # Proxygen HTTP 서버
-│   ├── HttpsServer.hpp         # HTTPS 서버
-│   ├── WebSocketListener.hpp   # WebSocket 리스너
-│   ├── WebSocketSession.hpp    # WebSocket 세션
-│   ├── WebSocketSSLSession.hpp # SSL WebSocket 세션
-│   ├── SessionInterface.hpp    # 세션 인터페이스
-│   ├── ChatServer.hpp          # 채팅 서버 (개선됨)
-│   ├── ChatRoom.hpp            # 채팅룸 관리 (개선됨)
-│   ├── ChatSession.hpp         # 채팅 세션 (개선됨)
-│   └── handlers/
-│       └── PlacesApiHandler.hpp
-├── src/                    # 소스 파일
-│   ├── main.cpp           # 진입점 (업데이트됨)
-│   ├── main_proxygen.cpp  # Proxygen 서버 진입점
-│   ├── ProxygenHttpServer.cpp
-│   ├── HttpsServer.cpp
-│   ├── WebSocketListener.cpp
-│   ├── WebSocketSession.cpp
-│   ├── WebSocketSSLSession.cpp
-│   ├── ChatServer.cpp
-│   ├── ChatRoom.cpp
-│   ├── ChatSession.cpp
-│   └── handlers/
-│       └── PlacesApiHandler.cpp  # API 핸들러 (개선됨)
-├── ssl/                    # SSL 인증서 디렉토리
-├── history/                # 채팅 히스토리 저장
-├── tests/                  # 테스트 코드
-├── CMakeLists.txt         # CMake 설정 (업데이트됨)
-├── vcpkg.json             # 의존성 정의 (Proxygen 추가)
-└── Dockerfile             # 컨테이너 빌드 (최적화됨)
-```
+-   **Language**: C++20
+-   **Core Framework**: Proxygen, Folly, Boost.Asio, Boost.Beast
+-   **Build System**: CMake 3.20+
+-   **Package Manager**: vcpkg
+-   **Libraries**: OpenSSL, spdlog, nlohmann/json
+-   **Containerization**: Docker
+-   **Orchestration**: Amazon ECS on EC2
+-   **CI/CD**: GitHub Actions
 
 ## 🚀 시작하기
 
 ### 사전 요구사항
 
-- CMake 3.20 이상
-- C++20 지원 컴파일러 (GCC 11+, Clang 13+, MSVC 2019+)
-- vcpkg 패키지 매니저
-- Google Maps API 키
+-   CMake 3.20 이상
+-   C++20 지원 컴파일러 (GCC 11+, Clang 13+, MSVC 2019+)
+-   vcpkg 패키지 매니저
+-   Google Maps API 키
 
-### 빠른 시작
+### 빠른 시작 (로컬)
 
 ```bash
-# 저장소 클론 (서브모듈 포함)
+# 이 저장소를 클론합니다.
 git clone --recursive https://github.com/kugorang/CherryRecorder-Server.git
 cd CherryRecorder-Server
 
-# 환경 변수 설정
+# 환경 변수 파일을 생성하고 API 키를 입력합니다.
 cp .env.example .env
-# .env 파일을 편집하여 GOOGLE_MAPS_API_KEY 설정
+# nano .env
 
-# 빌드 및 실행 (Windows)
+# 빌드 및 실행 (스크립트 사용)
+# Windows
 ./local_build_and_run.bat
-
-# 빌드 및 실행 (Linux/Mac)
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-./build/CherryRecorder-Server
+# Linux/macOS
+chmod +x ./local_build_and_run.sh
+./local_build_and_run.sh
 ```
 
 ## ⚙️ 개발 환경 설정
 
 ### 1. vcpkg 설정
 
-프로젝트는 vcpkg를 서브모듈로 포함하고 있습니다:
+프로젝트는 vcpkg를 서브모듈로 포함하고 있습니다.
 
 ```bash
 # vcpkg 서브모듈 초기화
@@ -152,286 +120,85 @@ git submodule update --init --recursive
 # vcpkg 부트스트랩 (Windows)
 ./vcpkg/bootstrap-vcpkg.bat
 
-# vcpkg 부트스트랩 (Linux/Mac)
+# vcpkg 부트스트랩 (Linux/macOS)
 ./vcpkg/bootstrap-vcpkg.sh
 ```
 
-### 2. 환경 변수 설정
+### 2. 환경 변수
 
-`.env` 파일 생성:
+`.env` 파일을 생성하여 아래 변수들을 설정합니다.
 
 ```env
 # Google Maps API 키 (필수)
 GOOGLE_MAPS_API_KEY=your_api_key_here
 
 # 서버 설정 (선택사항 - 기본값 있음)
-HTTP_SERVER_IP=0.0.0.0
-HTTP_SERVER_PORT=8080
-HTTP_THREADS=8  # Proxygen 워커 스레드 수
+HTTP_PORT=8080
+HTTPS_PORT=58080 # Proxygen 기본값, 현재는 비활성화
+WS_PORT=33334
+THREADS=8
 
-# SSL 설정 (HTTPS 사용 시)
+# SSL 설정 (자체 서명 인증서로 HTTPS 활성화 시)
 SSL_CERT_PATH=./ssl/cert.pem
 SSL_KEY_PATH=./ssl/key.pem
 
-# 채팅 서버 설정
-WEBSOCKET_PORT=33334
-CHAT_HISTORY_PATH=./history
+# 채팅 히스토리 경로
+HISTORY_DIR=./history
 ```
 
 ### 3. IDE 설정
 
-#### Visual Studio Code
-
-1. C/C++ Extension 설치
-2. CMake Tools Extension 설치
-3. 프로젝트 열기 후 CMake Configure 실행
-
-#### Visual Studio
-
-1. "Open a local folder" 선택
-2. CMakePresets.json이 자동으로 인식됨
-3. 빌드 구성 선택 후 빌드
+-   **Visual Studio Code**: C/C++ 및 CMake Tools 확장 프로그램을 설치하면 자동으로 빌드 환경이 구성됩니다.
+-   **Visual Studio 2019/2022**: "Open a local folder" 기능으로 프로젝트를 열면 `CMakeLists.txt`가 자동으로 인식됩니다.
 
 ## 🏃‍♂️ 실행 방법
 
-### 로컬 개발
+### 로컬 빌드 및 실행
 
 ```bash
-# Debug 빌드
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+# Release 모드로 빌드
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -D CMAKE_TOOLCHAIN_FILE=./vcpkg/scripts/buildsystems/vcpkg.cmake
+
+# 빌드 실행
 cmake --build build
 
-# Release 빌드
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-
-# 실행
-./build/CherryRecorder-Server
+# 서버 실행
+./build/CherryRecorder-Proxygen-App
 ```
 
 ### Docker 실행
 
+로컬 환경에서 Docker를 사용하여 서버를 실행할 수 있습니다.
+
 ```bash
-# 이미지 빌드
+# Docker 이미지 빌드
 docker build -t cherryrecorder-server .
 
-# 컨테이너 실행
-docker run -p 8080:8080 \
+# Docker 컨테이너 실행
+docker run -p 8080:8080 -p 33334:33334 \
   --env-file .env \
+  --name cherry-server \
   cherryrecorder-server
-```
-
-### Docker Compose
-
-```yaml
-version: '3.8'
-services:
-  server:
-    image: kugorang/cherryrecorder-server:latest
-    ports:
-      - "8080:8080"    # HTTP API
-    env_file:
-      - .env
-    restart: unless-stopped
-```
-
-## 📚 API 문서
-
-### HTTP API (포트 8080)
-
-#### 헬스체크
-```http
-GET /health
-
-Response:
-{
-  "status": "ok",
-  "timestamp": "2024-01-01T00:00:00Z"
-}
-```
-
-#### 주변 장소 검색
-```http
-GET /places/nearby?location=37.5665,126.9780&radius=1000&type=restaurant
-
-Parameters:
-- location: 위도,경도 (필수)
-- radius: 검색 반경(미터) (필수)
-- type: 장소 유형 (선택)
-
-Response (개선됨):
-{
-  "results": [
-    {
-      "id": "place_id",
-      "name": "장소명",
-      "location": {
-        "lat": 37.5665,
-        "lng": 126.9780
-      },
-      "types": ["restaurant", "food"],
-      "rating": 4.5,
-      "user_ratings_total": 100,
-      "vicinity": "주소"
-    }
-  ],
-  "status": "OK"
-}
-```
-
-#### 텍스트 검색
-```http
-GET /places/search?query=커피&location=37.5665,126.9780&radius=1000
-
-Parameters:
-- query: 검색어 (필수)
-- location: 위도,경도 (선택)
-- radius: 검색 반경(미터) (선택)
-```
-
-#### 장소 상세정보
-```http
-GET /places/details?place_id=ChIJN1t_tDeuEmsRUsoyG83frY4
-
-Parameters:
-- place_id: Google Place ID (필수)
-```
-
-### WebSocket 채팅 (포트 33334)
-
-WebSocket 연결 후 JSON 메시지 교환:
-
-```javascript
-// 연결
-ws = new WebSocket('ws://localhost:33334');
-
-// 메시지 전송
-ws.send(JSON.stringify({
-  type: 'message',
-  nickname: '사용자1',
-  content: '안녕하세요!'
-}));
-```
-
-## 🚀 CI/CD
-
-### GitHub Actions 워크플로우
-
-프로젝트는 완전 자동화된 CI/CD 파이프라인을 사용합니다:
-
-1. **빌드 & 테스트**: Linux 환경에서 C++ 빌드 및 단위 테스트
-2. **문서 생성**: Doxygen을 통한 API 문서 자동 생성
-3. **GitHub Pages 배포**: 생성된 문서를 자동 배포
-4. **Docker 빌드**: 멀티 스테이지 빌드로 최적화된 이미지 생성
-5. **레지스트리 푸시**: 
-   - GitHub Container Registry (GHCR)
-   - Docker Hub
-   - AWS ECR
-6. **AWS ECS 배포**: 프로덕션 환경 자동 배포
-7. **연결 테스트**: 배포 후 자동 헬스체크
-
-### 필요한 GitHub Secrets
-
-```yaml
-# AWS 관련
-AWS_ROLE_TO_ASSUME: OIDC 연동 IAM 역할 ARN
-TASK_EXECUTION_ROLE_ARN: ECS Task 실행 역할 ARN
-
-# Docker Hub
-DOCKERHUB_USERNAME: Docker Hub 사용자명
-DOCKERHUB_TOKEN: Docker Hub 액세스 토큰
-
-# API 키
-GOOGLE_MAPS_API_KEY: Google Maps API 키
-```
-
-### 필요한 GitHub Variables
-
-```yaml
-# AWS 설정
-AWS_REGION: ap-northeast-2
-AWS_ACCOUNT_ID: 123456789012
-AWS_ECR_REPOSITORY: cherryrecorder-server
-
-# ECS 설정
-ECS_CLUSTER_NAME: cherryrecorder-cluster
-ECS_SERVICE_NAME: cherryrecorder-service
-ECS_TASK_DEF_FAMILY: cherryrecorder-task
-CONTAINER_NAME: cherryrecorder-server
-
-# 서버 설정
-SERVER_ADDRESS: cherryrecorder-nlb.elb.amazonaws.com
-HEALTH_CHECK_PORT_VALUE: 8080
 ```
 
 ## 🚢 배포
 
-### Docker 이미지
+이 서버는 AWS ECS(Elastic Container Service)에 EC2 모드로 배포되도록 설계되었습니다.
 
-최신 이미지는 다음 레지스트리에서 사용 가능합니다:
+-   **CI/CD**: `.github/workflows/`의 GitHub Actions 워크플로우가 main 브랜치 푸시 시 Docker 이미지를 빌드하여 Amazon ECR에 푸시합니다.
+-   **Task Definition**: `task-definition.json.template`는 ECS 배포를 위한 템플릿입니다. Proxygen의 안정성을 위해 `awsvpc` 네트워크 모드, EC2 타입, 최적화된 `ulimits` 및 `sysctl` 설정이 포함되어 있습니다.
+-   **서비스 생성**: ECR의 이미지를 사용하여 ECS 서비스를 생성하고 Application Load Balancer(ALB)와 연동합니다.
 
-```bash
-# Docker Hub
-docker pull kugorang/cherryrecorder-server:latest
+## ⚠️ 문제 해결
 
-# GitHub Container Registry  
-docker pull ghcr.io/kugorang/cherryrecorder-server:latest
+### Proxygen on ECS EC2
 
-# AWS ECR (인증 필요)
-docker pull 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/cherryrecorder-server:latest
-```
-
-### AWS ECS 배포
-
-ECS 배포는 GitHub Actions를 통해 자동으로 이루어집니다:
-
-1. main 브랜치에 푸시
-2. CI/CD 파이프라인 자동 실행
-3. 새 Task Definition 생성
-4. ECS 서비스 업데이트
-5. 롤링 배포 수행
-
-## 🧪 테스트
-
-### 단위 테스트 실행
-
-```bash
-# 테스트 빌드
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
-
-# 테스트 실행
-cd build
-ctest --output-on-failure
-```
-
-### 통합 테스트
-
-```bash
-# Docker 환경에서 테스트
-docker build -f Dockerfile.test -t cherryrecorder-test .
-docker run --rm cherryrecorder-test
-```
-
-## 🔧 문제 해결
-
-### Google Maps API 404 오류
-
-1. `.env` 파일에 유효한 API 키가 설정되어 있는지 확인
-2. Google Cloud Console에서 Places API가 활성화되어 있는지 확인
-3. API 키에 IP 제한이 있다면 서버 IP 추가
-
-### 빌드 실패
-
-1. vcpkg 서브모듈이 제대로 초기화되었는지 확인
-2. C++20을 지원하는 컴파일러인지 확인
-3. CMake 버전이 3.20 이상인지 확인
-
-### Docker 실행 오류
-
-1. 모든 필요한 포트가 사용 가능한지 확인
-2. `.env` 파일이 올바른 위치에 있는지 확인
-3. 컨테이너 로그 확인: `docker logs <container-id>`
+-   **문제점**: Proxygen/Folly의 기본 이벤트 메커니즘(`epoll`)이 일부 ECS 환경에서 `Function not implemented` 오류를 발생시키며 비정상 종료되는 현상이 있었습니다.
+-   **해결 과정**:
+    1.  **Fargate vs EC2**: 커널 제어가 용이한 **EC2 모드**를 채택했습니다.
+    2.  **Event Backend 변경**: `FOLLY_EVENTBASE_BACKEND` 환경 변수를 `poll`로 강제하여 `epoll` 사용을 회피했습니다.
+    3.  **libevent 커스텀 빌드**: `Dockerfile` 내에서 `libevent`를 `--disable-epoll` 옵션으로 직접 컴파일하여, `epoll` 기능이 원천적으로 제외된 라이브러리를 사용하도록 했습니다.
+    4.  **시스템 리소스 최적화**: ECS 태스크 정의에서 `ulimits`(파일 디스크립터 수) 및 `sysctl`(네트워크 커널 파라미터) 설정을 튜닝하여 안정성을 확보했습니다.
 
 ## 📄 라이선스
 
@@ -439,17 +206,16 @@ docker run --rm cherryrecorder-test
 
 ## 🤝 기여하기
 
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+프로젝트에 기여하고 싶으시다면 언제든지 Pull Request를 보내주시거나 이슈를 등록해주세요.
 
-## 📞 지원
+1.  Fork the Project
+2.  Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3.  Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4.  Push to the Branch (`git push origin feature/AmazingFeature`)
+5.  Open a Pull Request
 
-- 이슈 트래커: [GitHub Issues](https://github.com/kugorang/CherryRecorder-Server/issues)
-- 문서: [Doxygen Documentation](https://kugorang.github.io/CherryRecorder-Server/)
+## 📞 문의
 
----
-
-Made with ❤️ by CherryRecorder Team
+-   **김현우 (Hyeonwoo Kim)** - Project Lead & Full-Stack Developer
+-   **GitHub Issues**: [https://github.com/kugorang/CherryRecorder-Server/issues](https://github.com/kugorang/CherryRecorder-Server/issues)
+-   **Email**: `ialskdji@gmail.com`

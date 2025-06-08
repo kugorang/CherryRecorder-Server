@@ -52,6 +52,7 @@ public:
     virtual std::shared_ptr<SessionInterface> shared_from_this() = 0;
 };
 
+/// @brief SessionInterface에 대한 공유 포인터 타입 정의.
 using SessionPtr = std::shared_ptr<SessionInterface>;
 
 #endif // SESSION_INTERFACE_HPP 
