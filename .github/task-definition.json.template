@@ -14,10 +14,11 @@
     {
       "name": "$CONTAINER_NAME",
       "image": "placeholder",
-      "cpu": 400,
-      "memory": 400,
-      "memoryReservation": 300,
+      "cpu": 950,
+      "memory": 900,
+      "memoryReservation": 700,
       "essential": true,
+      "privileged": true,
       "linuxParameters": {
         "capabilities": {
           "add": [
@@ -32,6 +33,10 @@
           {
             "containerPath": "/tmp",
             "size": 512
+          },
+          {
+            "containerPath": "/dev/shm",
+            "size": 256
           }
         ],
         "systemControls": [
@@ -50,6 +55,22 @@
           {
             "namespace": "net.ipv4.tcp_keepalive_time",
             "value": "600"
+          },
+          {
+            "namespace": "net.core.rmem_max",
+            "value": "134217728"
+          },
+          {
+            "namespace": "net.core.wmem_max",
+            "value": "134217728"
+          },
+          {
+            "namespace": "net.ipv4.tcp_rmem",
+            "value": "4096 87380 134217728"
+          },
+          {
+            "namespace": "net.ipv4.tcp_wmem",
+            "value": "4096 65536 134217728"
           }
         ]
       },
@@ -117,14 +138,21 @@
         {
           "name": "GLOG_v",
           "value": "2"
+        },
+        {
+          "name": "GOMAXPROCS",
+          "value": "1"
+        },
+        {
+          "name": "OMP_NUM_THREADS",
+          "value": "1"
         }
       ],
       "logConfiguration": {
-        "logDriver": "awslogs",
+        "logDriver": "json-file",
         "options": {
-          "awslogs-group": "/ecs/$FAMILY",
-          "awslogs-region": "$AWS_REGION",
-          "awslogs-stream-prefix": "ecs"
+          "max-size": "10m",
+          "max-file": "3"
         }
       },
       "healthCheck": {

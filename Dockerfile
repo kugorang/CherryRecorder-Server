@@ -41,10 +41,15 @@ RUN cd /tmp && \
     wget https://github.com/libevent/libevent/releases/download/release-2.1.12-stable/libevent-2.1.12-stable.tar.gz && \
     tar -xzf libevent-2.1.12-stable.tar.gz && \
     cd libevent-2.1.12-stable && \
-    ./configure --disable-epoll --disable-epollsig --enable-poll --enable-select && \
+    ./configure --disable-epoll --disable-epollsig --enable-poll --enable-select \
+                --disable-kqueue --disable-devpoll --disable-evport \
+                --enable-thread-support --enable-debug-mode \
+                --prefix=/usr/local && \
     make -j$(nproc) && \
     make install && \
     ldconfig && \
+    # libevent 설치 확인
+    ls -la /usr/local/lib/libevent* && \
     cd / && rm -rf /tmp/libevent*
 
 # --- STEP 1.5: 최신 CMake 설치 ---
@@ -78,7 +83,8 @@ RUN git clone https://github.com/microsoft/vcpkg.git && \
 ENV VCPKG_BINARY_SOURCES="clear;default,readwrite"
 
 # vcpkg 빌드 최적화 환경 변수
-ENV VCPKG_MAX_CONCURRENCY=4
+ARG VCPKG_MAX_CONCURRENCY=4
+ENV VCPKG_MAX_CONCURRENCY=${VCPKG_MAX_CONCURRENCY}
 ENV VCPKG_DISABLE_METRICS=1
 ENV VCPKG_DEFAULT_TRIPLET=x64-linux
 # 추가 최적화: 병렬 다운로드 증가, 빌드 타입 최적화
@@ -146,6 +152,9 @@ RUN --mount=type=cache,target=/root/.cache/vcpkg \
     fi && \
     # 1. vcpkg로 의존성 명시적 설치 (이 단계에서 Ninja, CXX 컴파일러 필요)
     /opt/vcpkg/vcpkg install --triplet x64-linux --clean-after-build && \
+    # vcpkg의 libevent 제거 (우리가 빌드한 버전 사용)
+    rm -rf /app/build/vcpkg_installed/x64-linux/lib/libevent* && \
+    rm -rf /app/build/vcpkg_installed/x64-linux/include/event* && \
     # 2. CMake 실행 (이미 패키지가 설치되었으므로 빠르게 진행)
     cmake -S . -B build \
       -G Ninja \
@@ -197,6 +206,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libzstd1 \
     libsodium23 \
     libdouble-conversion3 \
+    libc6-dev \
+    strace \
     && rm -rf /var/lib/apt/lists/*
 
 # Builder 스테이지에서 빌드된 vcpkg 라이브러리 전체 복사
@@ -204,6 +215,9 @@ COPY --from=builder /app/build/vcpkg_installed/x64-linux/lib/*.so* /usr/local/li
 
 # libevent 라이브러리 복사 (직접 빌드한 버전)
 COPY --from=builder /usr/local/lib/libevent* /usr/local/lib/
+
+# vcpkg의 libevent가 복사되었다면 제거 (우리가 빌드한 버전 우선)
+RUN rm -f /usr/local/lib/libevent-2.2* || true
 
 # 라이브러리 캐시 업데이트
 RUN ldconfig

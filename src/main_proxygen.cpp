@@ -12,6 +12,7 @@
 #include <boost/asio/io_context.hpp>
 #include <event2/event.h>
 #include <event2/thread.h>
+#include <event2/util.h>
 #include "ProxygenHttpServer.hpp"
 #include "ChatServer.hpp"
 #include "../include/WebSocketListener.hpp"
@@ -122,12 +123,29 @@ int main(int argc, char* argv[]) {
     setenv("FOLLY_DISABLE_EPOLL", "1", 1);
     setenv("FOLLY_USE_EPOLL", "0", 1);
     
+    // 먼저 기본 event_base 생성 시도 (환경 변수 적용 후)
+    LOG(INFO) << "Attempting to create default event_base first...";
+    struct event_base* default_base = event_base_new();
+    if (default_base) {
+        const char* method = event_base_get_method(default_base);
+        LOG(INFO) << "Default event_base created successfully using method: " << (method ? method : "unknown");
+        event_base_free(default_base);
+    } else {
+        LOG(ERROR) << "Failed to create default event_base!";
+        
+        // libevent 에러 정보 수집
+        const char* libevent_err = evutil_socket_error_to_string(evutil_socket_geterror());
+        LOG(ERROR) << "libevent error: " << (libevent_err ? libevent_err : "unknown");
+    }
+    
     // 테스트용 event_base 생성 (명시적 설정 사용)
     struct event_config* cfg = event_config_new();
     if (cfg) {
         // epoll 메서드 명시적 비활성화
         event_config_avoid_method(cfg, "epoll");
         event_config_avoid_method(cfg, "epollsig");
+        // kqueue도 비활성화 (혹시 모르니)
+        event_config_avoid_method(cfg, "kqueue");
         
         // poll과 select만 사용하도록 설정
         event_config_require_features(cfg, 0); // 특별한 기능 요구사항 없음
@@ -139,6 +157,7 @@ int main(int argc, char* argv[]) {
             event_base_free(test_base);
         } else {
             LOG(ERROR) << "Failed to create test event_base with config!";
+            
             // 설정 없이 재시도
             test_base = event_base_new();
             if (test_base) {
@@ -147,6 +166,7 @@ int main(int argc, char* argv[]) {
                 event_base_free(test_base);
             } else {
                 LOG(FATAL) << "Cannot create any event_base! Check system configuration.";
+                LOG(INFO) << "This might be a Docker/WSL2 issue. Try running with --privileged flag.";
                 return 1;
             }
         }

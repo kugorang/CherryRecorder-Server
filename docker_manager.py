@@ -4,6 +4,7 @@ import subprocess
 import os
 import shutil
 import sys
+import time
 
 # --- Configuration ---
 APP_IMAGE_TAG = "cherryrecorder-server:latest"
@@ -23,6 +24,11 @@ CONTAINER_PORT_CHAT = "33334"
 
 # --- Environment Variables File - Only for Application Mode ---
 ENV_FILE_PATH = ".env.docker"
+# ECS 환경에서 사용할 수 있는 대체 경로들
+ENV_FILE_ALTERNATIVES = [".env", "server-config.env", "../server-config.env"]
+
+# --- ECS t2.micro 환경 설정 ---
+IS_T2_MICRO = os.environ.get('ECS_INSTANCE_TYPE', '').lower() == 't2.micro'
 
 # --- Helper Functions ---
 def run_command(command, check=True, env=None, **kwargs):
@@ -166,17 +172,45 @@ def main():
 
             # Prepare run args for app
             run_args_list = ["docker", "run", "-d", "--name", container_name]
+            
+            # t2.micro 환경을 위한 리소스 제한
+            # 1GB RAM 중 시스템용 300MB 제외하고 700MB 할당
+            resource_limits = [
+                "--memory", "700m",
+                "--memory-swap", "700m",  # swap 비활성화 (성능 저하 방지)
+                "--cpus", "0.95"  # CPU의 95% 사용 (시스템 여유분 확보)
+            ]
+            run_args_list.extend(resource_limits)
+            
+            # ECS t2.micro 환경에서 추가 설정
+            if IS_T2_MICRO:
+                ecs_options = [
+                    "--privileged",  # WSL2/ECS libevent 문제 해결
+                    "--log-driver", "json-file",
+                    "--log-opt", "max-size=10m",  # 로그 크기 제한
+                    "--log-opt", "max-file=3",
+                    "--restart", "unless-stopped"
+                ]
+                run_args_list.extend(ecs_options)
+            
             port_map_options = [
                 "-p", f"{HOST_PORT_HTTP}:{CONTAINER_PORT_HTTP}",
                 "-p", f"{HOST_PORT_CHAT}:{CONTAINER_PORT_CHAT}"
             ]
             run_args_list.extend(port_map_options)
 
-            if os.path.exists(ENV_FILE_PATH):
-                print(f"Found environment file: {ENV_FILE_PATH}")
-                run_args_list.extend(["--env-file", ENV_FILE_PATH])
-            else:
-                print(f"WARNING: Environment file not found at {ENV_FILE_PATH}. Container will run without it.")
+            # 환경 변수 파일 찾기
+            env_file_found = False
+            for env_path in [ENV_FILE_PATH] + ENV_FILE_ALTERNATIVES:
+                if os.path.exists(env_path):
+                    print(f"Found environment file: {env_path}")
+                    run_args_list.extend(["--env-file", env_path])
+                    env_file_found = True
+                    break
+            
+            if not env_file_found:
+                print(f"WARNING: No environment file found. Checked: {[ENV_FILE_PATH] + ENV_FILE_ALTERNATIVES}")
+                print("Container will run without environment file.")
 
             run_args_list.append(image_tag)
             run_args = run_args_list
@@ -186,6 +220,14 @@ def main():
         print("INFO: Docker BuildKit is enabled for improved caching performance.")
         print("INFO: First build may take 20-30 minutes to compile all dependencies.")
         print("INFO: Subsequent builds will be much faster due to caching.")
+        
+        # t2.micro에서 빌드 시 메모리 부족 방지
+        if args.target == "app":
+            print("INFO: Building on t2.micro - using memory-optimized settings.")
+            build_args.extend([
+                "--build-arg", "VCPKG_MAX_CONCURRENCY=1",  # 병렬 빌드 제한
+                "--memory", "900m",  # 빌드 시 메모리 제한
+            ])
         
         # 빌드 진행 상황을 표시하기 위해 --progress=plain 추가
         build_args.extend(["--progress=plain"])
@@ -203,6 +245,30 @@ def main():
             print(f"\nContainer '{APP_CONTAINER_NAME}' started successfully.")
             print(f"  To view logs: docker logs {APP_CONTAINER_NAME} -f")
             print(f"  To stop:      docker kill {APP_CONTAINER_NAME}")
+            
+            # 헬스체크 수행 (5초 대기 후)
+            print("\nWaiting for container to be ready...")
+            time.sleep(5)
+            
+            # 컨테이너 상태 확인
+            print("\nContainer status:")
+            check_cmd = ["docker", "ps", "--filter", f"name={APP_CONTAINER_NAME}", "--format", "table {{.Status}}"]
+            run_command(check_cmd)
+            
+            # 헬스체크 엔드포인트 테스트
+            print("\nTesting health endpoint...")
+            health_cmd = ["docker", "exec", APP_CONTAINER_NAME, "curl", "-f", "http://localhost:8080/health"]
+            if run_command(health_cmd, check=False):
+                print("✓ Health check passed!")
+            else:
+                print("✗ Health check failed - server may still be starting up.")
+                print("  Check logs with: docker logs " + APP_CONTAINER_NAME)
+            
+            # t2.micro 환경에서 리소스 사용량 표시
+            if IS_T2_MICRO:
+                print("\n--- Resource Usage (t2.micro) ---")
+                stats_cmd = ["docker", "stats", "--no-stream", "--format", "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}", APP_CONTAINER_NAME]
+                run_command(stats_cmd)
         else:
             print("\nTests completed successfully.")
 
