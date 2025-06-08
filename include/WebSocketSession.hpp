@@ -144,4 +144,11 @@ private:
    * @param message 수신된 메시지 문자열.
    */
   void process_message(const std::string &message);
+
+  /**
+   * @brief 사용자 인증을 처리합니다. (현재는 구현되지 않음)
+   * @param username 사용자 이름.
+   * @param password 비밀번호.
+   */
+  void handle_auth(const std::string& username, const std::string& password);
 }; 

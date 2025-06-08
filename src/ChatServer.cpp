@@ -454,15 +454,13 @@ void ChatServer::try_register_nickname_impl(const std::string &nickname_copy,
             if (!old_nick.empty() && old_nick != nickname_copy && old_nick != session->remote_id()) {
                 auto old_it = nicknames_.find(old_nick);
                 // Check if the old nickname exists and points to the same session
-                if (old_it != nicknames_.end()) {
-                    if (auto locked_old_session = old_it->second.lock(); locked_old_session == session) {
-                       nicknames_.erase(old_it); // Erase requires the lock
-                       spdlog::info("[ChatServer {}] Removed old nickname '{}' for session {} (strand).", fmt::ptr(this), old_nick, fmt::ptr(session.get()));
-                    } else if (!locked_old_session) {
-                        // Old nickname points to an expired session, remove it anyway
-                        nicknames_.erase(old_it);
-                        spdlog::info("[ChatServer {}] Removed expired old nickname '{}' during registration (strand).", fmt::ptr(this), old_nick);
-                    }
+                if (auto locked_old_session = old_it->second.lock(); locked_old_session == session) {
+                   nicknames_.erase(old_it); // Erase requires the lock
+                   spdlog::info("[ChatServer {}] Removed old nickname '{}' for session {} (strand).", fmt::ptr(this), old_nick, fmt::ptr(session.get()));
+                } else if (!locked_old_session) {
+                    // Old nickname points to an expired session, remove it anyway
+                    nicknames_.erase(old_it);
+                    spdlog::info("[ChatServer {}] Removed expired old nickname '{}' during registration (strand).", fmt::ptr(this), old_nick);
                 }
             }
             // Register the new nickname
@@ -496,13 +494,20 @@ void ChatServer::unregister_nickname(const std::string &nickname)
 }
 
 /**
+ * @brief 닉네임으로 세션을 비동기적으로 찾습니다.
+ * @details `strand_`를 통해 스레드 안전하게 `nicknames_` 맵을 검색합니다.
+ *          닉네임에 해당하는 세션을 찾으면 세션에 대한 `shared_ptr`를,
+ *          찾지 못하거나 세션이 만료되었으면 `nullptr`를 핸들러에 전달합니다.
+ * @param nickname 찾고자 하는 사용자의 닉네임.
+ * @param handler 검색 완료 시 `SessionPtr`를 인자로 호출될 콜백 함수.
+ */
 void ChatServer::find_session_by_nickname_async(const std::string &nickname,
                                                 std::function<void(SessionPtr)> handler)
 {
     if (stopped_) {
         net::post(ioc_, [handler]() { handler(nullptr); });
-            return;
-        }
+        return;
+    }
     auto self = shared_from_this();
     net::dispatch(strand_, [this, self, nickname, handler = std::move(handler)]() mutable {
         SessionPtr result = nullptr;
@@ -521,6 +526,14 @@ void ChatServer::find_session_by_nickname_async(const std::string &nickname,
     });
 }
 
+/**
+ * @brief 비동기적으로 현재 접속 중인 모든 사용자의 닉네임 목록을 가져옵니다.
+ * @details 이 함수는 서버의 `strand`를 통해 스레드 안전하게 `nicknames_` 맵에 접근합니다.
+ *          `nicknames_` 맵을 순회하며 만료된 세션(`weak_ptr`가 가리키는 세션이 소멸된 경우)을
+ *          자동으로 정리하고, 활성 세션의 닉네임만 수집하여 반환합니다.
+ * @param handler 닉네임 목록(`std::vector<std::string>`)을 인자로 받는 콜백 함수.
+ *                이 핸들러는 `io_context`의 메인 이벤트 루프에서 실행됩니다.
+ */
 void ChatServer::get_user_list_async(std::function<void(std::vector<std::string>)> handler)
 {
     if (stopped_) {
@@ -532,7 +545,7 @@ void ChatServer::get_user_list_async(std::function<void(std::vector<std::string>
         std::vector<std::string> user_list;
         // Lock the mutex before iterating nicknames_
         {
-            std::lock_guard<std::mutex> lock(nicknames_mutex_); 
+            std::lock_guard<std::mutex> lock(nicknames_mutex_);
             for (auto it = nicknames_.begin(); it != nicknames_.end(); /* manual increment */) {
                 if (auto session = it->second.lock()) { // lock weak_ptr
                     user_list.push_back(it->first);
@@ -546,10 +559,13 @@ void ChatServer::get_user_list_async(std::function<void(std::vector<std::string>
         // Post the result back
         net::post(ioc_, [handler = std::move(handler), user_list = std::move(user_list)]() {
             handler(user_list);
-        }); 
+        });
     });
 }
 
+/**
+ * @brief 사용자를 특정 채팅방에 참여시킵니다. (동기 버전)
+ */
 bool ChatServer::join_room(const std::string& room_name, SessionPtr session)
 {
     if (stopped_ || !session) return false;
