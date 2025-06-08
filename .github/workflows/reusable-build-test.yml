@@ -60,13 +60,15 @@ jobs:
             restore-keys: |
                 build-${{ runner.os }}-
 
-      # 5. CMake Configure (Release, Tests Enabled by default in CMakeLists)
+      # 5. CMake Configure (Release, Tests Enabled)
       - name: Configure CMake Project (Linux, Release)
         run: >
           cmake -S . -B build
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
           -DVCPKG_TARGET_TRIPLET=x64-linux
+          -DBUILD_TESTING=ON
+          -DVCPKG_MANIFEST_FEATURES=tests
 
       # 6. CMake Build
       - name: Build Project using CMake (Linux)
