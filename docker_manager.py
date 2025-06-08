@@ -226,7 +226,8 @@ def main():
             print("INFO: Building on t2.micro - using memory-optimized settings.")
             build_args.extend([
                 "--build-arg", "VCPKG_MAX_CONCURRENCY=1",  # 병렬 빌드 제한
-                "--memory", "900m",  # 빌드 시 메모리 제한
+                # 빌드 시에는 메모리 제한 제거 (빌드 실패 방지)
+                # "--memory", "900m",  
             ])
         
         # 빌드 진행 상황을 표시하기 위해 --progress=plain 추가

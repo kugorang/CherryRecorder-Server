@@ -50,7 +50,14 @@ RUN cd /tmp && \
     ldconfig && \
     # libevent 설치 확인
     ls -la /usr/local/lib/libevent* && \
+    ls -la /usr/local/include/event* && \
+    # pkg-config 파일 확인
+    ls -la /usr/local/lib/pkgconfig/libevent* && \
     cd / && rm -rf /tmp/libevent*
+
+# libevent를 찾을 수 있도록 환경 변수 설정
+ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"
 
 # --- STEP 1.5: 최신 CMake 설치 ---
 ARG CMAKE_VERSION=3.30.1
@@ -152,17 +159,16 @@ RUN --mount=type=cache,target=/root/.cache/vcpkg \
     fi && \
     # 1. vcpkg로 의존성 명시적 설치 (이 단계에서 Ninja, CXX 컴파일러 필요)
     /opt/vcpkg/vcpkg install --triplet x64-linux --clean-after-build && \
-    # vcpkg의 libevent 제거 (우리가 빌드한 버전 사용)
-    rm -rf /app/build/vcpkg_installed/x64-linux/lib/libevent* && \
-    rm -rf /app/build/vcpkg_installed/x64-linux/include/event* && \
-    # 2. CMake 실행 (이미 패키지가 설치되었으므로 빠르게 진행)
+    # 2. CMake 실행 - 우리가 빌드한 libevent를 우선 사용하도록 설정
     cmake -S . -B build \
       -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
       -DVCPKG_TARGET_TRIPLET=x64-linux \
       -DBUILD_TESTING=OFF \
-      -DCMAKE_VERBOSE_MAKEFILE=ON && \
+      -DCMAKE_VERBOSE_MAKEFILE=ON \
+      -DCMAKE_PREFIX_PATH="/usr/local" \
+      -DLibevent_DIR="/usr/local/lib/cmake/libevent" && \
     # 설치된 패키지 정보 출력
     echo "Installed vcpkg packages:" && \
     /opt/vcpkg/vcpkg list
