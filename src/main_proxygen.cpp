@@ -8,6 +8,7 @@
 #include <boost/asio/io_context.hpp>
 #include "ProxygenHttpServer.hpp"
 #include "ChatServer.hpp"
+#include "../include/WebSocketListener.hpp"
 
 namespace net = boost::asio;
 
@@ -38,6 +39,8 @@ void signalHandler(int signum) {
 int main(int argc, char* argv[]) {
     // Folly/glog/gflags 초기화
     folly::Init init(&argc, &argv, true);
+    
+    LOG(INFO) << "CherryRecorder Server v1.1 - WEBSOCKET_FIX_APPLIED (Proxygen)";
     
     // 시그널 핸들러 설정
     std::signal(SIGINT, signalHandler);
@@ -88,6 +91,16 @@ int main(int argc, char* argv[]) {
         );
         g_chat_server->run();
         LOG(INFO) << "WebSocket server listening on port " << FLAGS_ws_port;
+        
+        // WebSocket 리스너 생성 및 시작
+        LOG(INFO) << "Creating WebSocket listener...";
+        auto ws_listener = std::make_shared<WebSocketListener>(
+            ioc,
+            net::ip::tcp::endpoint{net::ip::make_address("0.0.0.0"), FLAGS_ws_port},
+            g_chat_server
+        );
+        LOG(INFO) << "Starting WebSocket listener...";
+        ws_listener->run();
         
         LOG(INFO) << "===========================================";
         LOG(INFO) << "All servers started successfully!";

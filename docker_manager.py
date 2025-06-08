@@ -18,8 +18,6 @@ BACKUP_DOCKERIGNORE = ".dockerignore.original"
 # --- Port Mapping (Host:Container) - Only for Application Mode ---
 HOST_PORT_HTTP = "8080"
 CONTAINER_PORT_HTTP = "8080"
-HOST_PORT_HTTPS = "58080"
-CONTAINER_PORT_HTTPS = "58080"
 HOST_PORT_CHAT = "33334"
 CONTAINER_PORT_CHAT = "33334"
 
@@ -170,7 +168,6 @@ def main():
             run_args_list = ["docker", "run", "-d", "--name", container_name]
             port_map_options = [
                 "-p", f"{HOST_PORT_HTTP}:{CONTAINER_PORT_HTTP}",
-                "-p", f"{HOST_PORT_HTTPS}:{CONTAINER_PORT_HTTPS}",
                 "-p", f"{HOST_PORT_CHAT}:{CONTAINER_PORT_CHAT}"
             ]
             run_args_list.extend(port_map_options)

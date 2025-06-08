@@ -30,7 +30,7 @@
           "value": "8080"
         },
         {
-          "name": "WEBSOCKET_PORT",
+          "name": "WS_PORT",
           "value": "33334"
         },
         {

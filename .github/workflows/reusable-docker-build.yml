@@ -189,7 +189,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           # GHCR에 푸시할 태그 지정 (SHA 태그)
           tags: ${{ steps.set-names.outputs.ghcr_image_sha }}
           push: true # 항상 GHCR에는 푸시 (캐싱 및 후속 작업 기반)

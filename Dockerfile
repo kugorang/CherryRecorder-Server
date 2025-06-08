@@ -204,8 +204,8 @@ RUN mkdir -p history && chown appuser:appuser history
 # 사용자 전환
 USER appuser
 
-# 기본 포트 노출 (HTTP, HTTPS, WS, WSS)
-EXPOSE 8080 58080 33334 33335
+# 기본 포트 노출 (HTTP, WS)
+EXPOSE 8080 33334
 
 # Health Check (HTTP 포트 사용)
 HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 \

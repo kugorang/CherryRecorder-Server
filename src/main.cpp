@@ -157,7 +157,7 @@ int main(int argc, char* argv[]) {
 #endif
     // --- 콘솔 설정 끝 ---
 
-    fprintf(stdout, "Running in RELEASE mode\n");
+    fprintf(stdout, "CherryRecorder Server v1.1 - WEBSOCKET_FIX_APPLIED\n");
 
     // --- io_context 생성 --- 
     // 모든 서버가 io_context를 공유하도록 변경 (더 효율적일 수 있음)
@@ -183,12 +183,13 @@ int main(int argc, char* argv[]) {
         // int chat_threads = get_int_env_var("CHAT_THREADS", 1); // Chat 서버는 이제 공유 ioc 사용
 
         // --- 서버 객체 생성 (로컬 스마트 포인터 사용) ---
-        auto http_server = std::make_unique<HttpServer>(http_bind_ip, http_port, http_threads); 
+        auto http_server = std::make_unique<HttpServer>(http_bind_ip, http_port, http_threads);
         std::unique_ptr<HttpsServer> https_server;
-        auto chat_server = std::make_shared<ChatServer>(ioc, ws_port);  // ChatServer를 여러 WebSocket 리스너가 공유 
-        
-        // WSS 리스너 생성 (SSL이 설정된 경우에만)
+        auto chat_server = std::make_shared<ChatServer>(ioc, ws_port);  // ChatServer를 여러 WebSocket 리스너가 공유
+        std::shared_ptr<WebSocketListener> ws_listener; // ws_listener를 미리 선언
         std::shared_ptr<WebSocketListener> wss_listener;
+
+        // WSS 리스너 생성 (SSL이 설정된 경우에만)
         if (!ssl_cert.empty() && !ssl_key.empty()) {
             try {
                 // SSL 컨텍스트 생성
@@ -212,6 +213,7 @@ int main(int argc, char* argv[]) {
                     ctx.use_tmp_dh_file(ssl_dh);
                 }
                 
+                fprintf(stdout, "Attempting to create WSS listener...\n");
                 wss_listener = std::make_shared<WebSocketListener>(
                     ioc,
                     net::ip::tcp::endpoint{net::ip::make_address("0.0.0.0"), wss_port},
@@ -219,7 +221,7 @@ int main(int argc, char* argv[]) {
                     std::move(ctx)
                 );
                 
-                fprintf(stdout, "WSS listener created with SSL certificate: %s\n", ssl_cert.c_str());
+                fprintf(stdout, "WSS listener created successfully with SSL certificate: %s\n", ssl_cert.c_str());
             } catch (const std::exception& e) {
                 fprintf(stderr, "Failed to create WSS listener: %s\n", e.what());
                 fprintf(stderr, "WebSocket Secure will not be available.\n");
@@ -245,21 +247,19 @@ int main(int argc, char* argv[]) {
         }
         
         // WS 리스너 생성 (비보안 WebSocket)
-        auto ws_listener = std::make_shared<WebSocketListener>(
+        fprintf(stdout, "Attempting to create WS listener...\n");
+        ws_listener = std::make_shared<WebSocketListener>(
             ioc,
             net::ip::tcp::endpoint{net::ip::make_address("0.0.0.0"), ws_port},
             chat_server
         );
+        fprintf(stdout, "WS listener created successfully.\n");
         
         // --- signal_set 핸들러 설정 (서버 객체 생성 후) ---
         signals.async_wait(
-            [&ioc, &http_server, &https_server, &chat_server](const beast::error_code& ec, int signal_number) {
-                // 시그널 핸들러 (io_context 스레드에서 실행됨)
-                if (ec) { 
-                    fprintf(stderr, "Signal wait error: %s\n", ec.message().c_str());
-                    return; 
-                }
-                fprintf(stdout, "\nShutdown signal (%d) received. Initiating graceful shutdown...\n", signal_number);
+            [&ioc, &http_server, &https_server, &chat_server, &ws_listener, &wss_listener]
+            (const beast::error_code& ec, int signal_number) {
+                fprintf(stdout, "\nSignal %d received. Shutting down...\n", signal_number);
 
                 // 각 서버의 stop() 메서드 호출 (람다 캡처 사용)
                 if (http_server) {
@@ -282,16 +282,18 @@ int main(int argc, char* argv[]) {
         // --- 시그널 설정 끝 ---
         
         // --- 서버 시작 ---
-        http_server->run(); 
-        
+        http_server->run();
         if (https_server) {
             https_server->run();
         }
-        
-        chat_server->run(); 
-        ws_listener->run();  // WS 리스너 시작
-        
+
+        // WebSocket 리스너 실행
+        if (ws_listener) {
+            fprintf(stdout, "Running WS listener...\n");
+            ws_listener->run();
+        }
         if (wss_listener) {
+            fprintf(stdout, "Running WSS listener...\n");
             wss_listener->run();
         }
 

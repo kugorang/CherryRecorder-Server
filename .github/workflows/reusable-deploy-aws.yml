@@ -99,10 +99,12 @@ jobs:
           
           # 포트 값들이 비어있을 경우 기본값 설정
           HTTP_PORT="${{ inputs.http_port_value }}"
-          WEBSOCKET_PORT="33334"  # 고정값 사용
+          WEBSOCKET_PORT="${{ inputs.websocket_port_value }}"
           
           # HTTP 포트 값이 비어있으면 기본값 사용
           HTTP_PORT="${HTTP_PORT:-8080}"
+          # WebSocket 포트 값이 비어있으면 기본값 사용
+          WEBSOCKET_PORT="${WEBSOCKET_PORT:-33334}"
 
           # 먼저 템플릿의 변수들을 sed로 치환하여 유효한 JSON 생성
           # sed 구분자로 | 사용 (ARN 등에 포함된 / 문자와의 충돌 방지)
@@ -126,7 +128,7 @@ jobs:
                ]
               | .containerDefinitions[0].environment = (.containerDefinitions[0].environment | map(
                  if .name == "HTTP_PORT" then .value = $http_port
-                 elif .name == "WEBSOCKET_PORT" then .value = $websocket_port
+                 elif .name == "WS_PORT" then .value = $websocket_port
                  elif .name == "GOOGLE_MAPS_API_KEY" then .value = $google_maps_api_key
                  else . end
                ))
