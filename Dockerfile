@@ -63,9 +63,6 @@ RUN git clone https://github.com/microsoft/vcpkg.git && \
     cd .. && \
     ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
-# vcpkg 바이너리 캐싱 활성화
-ENV VCPKG_BINARY_SOURCES="clear;default,readwrite"
-
 # vcpkg 빌드 최적화 환경 변수
 ARG VCPKG_MAX_CONCURRENCY=4
 ENV VCPKG_MAX_CONCURRENCY=${VCPKG_MAX_CONCURRENCY}
@@ -78,6 +75,10 @@ ENV VCPKG_INSTALL_OPTIONS="--x-use-aria2"
 # vcpkg 캐싱 개선
 ENV VCPKG_FEATURE_FLAGS="manifests,binarycaching"
 ENV VCPKG_KEEP_ENV_VARS="VCPKG_BINARY_SOURCES"
+
+# vcpkg 바이너리 캐시 경로를 빌드 인수로 받음
+ARG VCPKG_BINARY_SOURCES="clear;default,readwrite"
+ENV VCPKG_BINARY_SOURCES=${VCPKG_BINARY_SOURCES}
 
 # aria2c 설치 (더 빠른 다운로드를 위해)
 RUN apt-get update && apt-get install -y --no-install-recommends aria2 && rm -rf /var/lib/apt/lists/*
@@ -131,11 +132,6 @@ RUN --mount=type=cache,target=/root/.cache/vcpkg \
     --mount=type=cache,target=/opt/vcpkg/installed \
     --mount=type=cache,target=/app/build/vcpkg_installed \
     --mount=type=cache,target=/tmp/vcpkg \
-    --mount=type=secret,id=VCPKG_BINARY_SOURCES \
-    # GitHub Actions에서 전달된 바이너리 캐시 사용
-    if [ -f /run/secrets/VCPKG_BINARY_SOURCES ]; then \
-        export VCPKG_BINARY_SOURCES=$(cat /run/secrets/VCPKG_BINARY_SOURCES); \
-    fi && \
     # 1. vcpkg로 의존성 명시적 설치 (ECS 호환 triplet 사용)
     /opt/vcpkg/vcpkg install --triplet x64-linux-ecs --clean-after-build && \
     # 2. CMake 실행

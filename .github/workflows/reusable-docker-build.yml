@@ -230,9 +230,6 @@ jobs:
             VCPKG_BINARY_SOURCES=clear;files,${{ github.workspace }}/vcpkg-cache,readwrite
           # 빌드킷 설정
           builder: ${{ steps.buildx.outputs.name }}
-          # 추가 빌드 캐시 마운트
-          secret-envs: |
-            VCPKG_BINARY_SOURCES
           # 이미지 레이블 설정
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
