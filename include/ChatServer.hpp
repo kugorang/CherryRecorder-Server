@@ -1,3 +1,10 @@
+/**
+ * @file ChatServer.hpp
+ * @brief 채팅 서버의 핵심 로직을 담당하는 `ChatServer` 클래스를 정의합니다.
+ * @details 이 클래스는 세션 관리, 채팅방 관리, 메시지 브로드캐스팅 등
+ *          채팅 서버의 주요 기능을 총괄합니다. Boost.Asio를 사용하여 비동기적으로 동작하며,
+ *          여러 클라이언트의 동시 접속을 처리합니다.
+ */
 #pragma once
 
 // Standard Library Includes first
@@ -215,14 +222,11 @@ public:
 
 /**
  * @class ChatServer
- * @brief Boost.Asio TCP 기반 채팅 서버. (간소화된 채팅방 기능 포함)
- * 
- * @details 자체 io_context와 스레드를 관리하며, 여러 ChatSession을 관리하고 메시지를 브로드캐스트한다.
- * 다중 사용자 입장, 퇴장, 닉네임 설정, 메시지 전송을 지원한다.
- * 채팅방 기능은 이름 기반으로 단순화되어, 사용자는 `/join <roomname>`으로 참여하고
- * 이후 메시지는 해당 방으로 전송된다. `/leave`로 방을 나갈 수 있다.
- * 추가 기능: 개인 메시지, 파일 전송, 사용자 인증, 메시지 히스토리 (관련 클래스 선언 필요).
- * @see ChatSession, ChatListener
+ * @brief TCP/WebSocket 기반 채팅 서버의 메인 클래스.
+ * @details 클라이언트 세션(`ChatSession`, `WebSocketSession` 등)들을 관리하고,
+ *          채팅방을 생성/제거하며, 사용자 간의 메시지를 중계하는 역할을 합니다.
+ *          서버의 생명주기 관리, 시그널 처리, 비동기 작업 조율을 담당합니다.
+ *          모든 동시성 문제는 `strand_`를 통해 관리하여 데이터 레이스를 방지합니다.
  */
 class ChatServer : public std::enable_shared_from_this<ChatServer> {
 private:

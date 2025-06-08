@@ -1,8 +1,17 @@
+/**
+ * @file WebSocketSession.cpp
+ * @brief `WebSocketSession` 클래스의 멤버 함수 구현부입니다.
+ */
 #include "WebSocketSession.hpp"
 #include "ChatServer.hpp"
 #include <spdlog/spdlog.h>
 #include <boost/beast/core/buffers_to_string.hpp>
 
+/**
+ * @details TCP 소켓의 소유권을 WebSocket 스트림으로 이동시키고,
+ *          서버 포인터와 스트랜드를 초기화합니다.
+ *          클라이언트의 원격 엔드포인트(IP:PORT)를 가져와 `remote_id_`와 초기 `nickname_`으로 설정합니다.
+ */
 WebSocketSession::WebSocketSession(tcp::socket&& socket, std::shared_ptr<ChatServer> server)
     : ws_(std::move(socket))
     , server_(server)
@@ -25,6 +34,10 @@ WebSocketSession::~WebSocketSession()
     spdlog::info("[WebSocketSession {}] Destructor called", remote_id_);
 }
 
+/**
+ * @details `ws_.async_accept`를 호출하여 WebSocket 핸드셰이크를 비동기적으로 시작합니다.
+ *          핸드셰이크가 완료되면 `on_accept` 콜백이 호출됩니다.
+ */
 void WebSocketSession::run()
 {
     // WebSocket 핸드셰이크를 수락
@@ -35,6 +48,12 @@ void WebSocketSession::run()
             self));
 }
 
+/**
+ * @details 핸드셰이크 성공 시, WebSocket 타임아웃 등 옵션을 설정하고
+ *          `ChatServer`에 세션을 등록(`join`)합니다.
+ *          클라이언트에게 환영 메시지를 전송한 후, 첫 비동기 읽기(`do_read`)를 시작합니다.
+ *          실패 시 에러 로그를 남기고 세션을 종료합니다.
+ */
 void WebSocketSession::on_accept(beast::error_code ec)
 {
     if (ec) {
@@ -68,6 +87,10 @@ void WebSocketSession::on_accept(beast::error_code ec)
     do_read();
 }
 
+/**
+ * @details `ws_.async_read`를 호출하여 클라이언트로부터 메시지를 비동기적으로 읽습니다.
+ *          메시지 수신이 완료되면 `on_read` 콜백이 호출됩니다.
+ */
 void WebSocketSession::do_read()
 {
     // 비동기 읽기 작업 시작
@@ -79,6 +102,13 @@ void WebSocketSession::do_read()
             self));
 }
 
+/**
+ * @details 읽기 작업의 결과를 처리합니다.
+ *          - `websocket::error::closed`: 클라이언트가 정상적으로 연결을 닫은 경우로, 서버에서도 세션을 정리합니다.
+ *          - 기타 에러: 에러 로그를 남기고 세션을 정리합니다.
+ *          - 성공: 수신된 데이터를 문자열로 변환하고 버퍼를 비운 후, `process_message`를 호출하여 메시지를 처리합니다.
+ *            그 다음, `do_read`를 다시 호출하여 다음 메시지를 기다립니다.
+ */
 void WebSocketSession::on_read(beast::error_code ec, std::size_t bytes_transferred)
 {
     boost::ignore_unused(bytes_transferred);
@@ -111,6 +141,12 @@ void WebSocketSession::on_read(beast::error_code ec, std::size_t bytes_transferr
     do_read();
 }
 
+/**
+ * @details 수신된 메시지를 파싱하여 명령어와 일반 메시지를 구분하여 처리합니다.
+ *          - `/nick`, `/pm`, `/list`, `/join`, `/leave` 등 다양한 명령어를 처리합니다.
+ *          - 명령어 처리는 대부분 `ChatServer`의 해당 비동기 함수를 호출하여 위임합니다.
+ *          - 명령어가 아닌 경우 일반 채팅 메시지로 간주하고, 현재 방 또는 전체에 브로드캐스트합니다.
+ */
 void WebSocketSession::process_message(const std::string& message)
 {
     if (message.empty()) {
@@ -226,6 +262,12 @@ void WebSocketSession::process_message(const std::string& message)
     }
 }
 
+/**
+ * @details `net::post`를 사용하여 세션의 `strand_`에서 안전하게 작업을 수행합니다.
+ *          메시지를 `write_msgs_` 큐에 추가하고, 현재 쓰기 작업이 진행 중이 아니면
+ *          `do_write`를 호출하여 메시지 전송을 시작합니다.
+ *          큐가 가득 차면 경고를 남기고 메시지를 버립니다.
+ */
 void WebSocketSession::deliver(const std::string& msg)
 {
     auto self = shared_from_this();
@@ -245,6 +287,10 @@ void WebSocketSession::deliver(const std::string& msg)
         });
 }
 
+/**
+ * @details `write_msgs_` 큐가 비어있거나 이미 다른 쓰기 작업이 진행 중이면 아무것도 하지 않습니다.
+ *          `is_writing_` 플래그를 설정하고 `ws_.async_write`를 호출하여 큐의 첫 번째 메시지를 전송합니다.
+ */
 void WebSocketSession::do_write()
 {
     if (write_msgs_.empty() || is_writing_) {
@@ -260,6 +306,12 @@ void WebSocketSession::do_write()
             self));
 }
 
+/**
+ * @details 쓰기 작업 완료 후 호출됩니다.
+ *          - 에러 발생 시: 로그를 남기고 세션을 종료합니다.
+ *          - 성공 시: 전송된 메시지를 큐에서 제거하고, 큐에 남은 메시지가 있으면 `do_write`를 다시 호출하여
+ *            연속적으로 메시지를 전송합니다.
+ */
 void WebSocketSession::on_write(beast::error_code ec, std::size_t bytes_transferred)
 {
     boost::ignore_unused(bytes_transferred);
@@ -280,6 +332,9 @@ void WebSocketSession::on_write(beast::error_code ec, std::size_t bytes_transfer
     }
 }
 
+/**
+ * @details `ws_.close`를 호출하여 WebSocket 연결 종료 핸드셰이크를 시작합니다.
+ */
 void WebSocketSession::stop_session()
 {
     beast::error_code ec;

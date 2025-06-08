@@ -1,3 +1,9 @@
+/**
+ * @file ChatServer.cpp
+ * @brief `ChatServer` 클래스의 멤버 함수 구현부입니다.
+ * @details 서버의 초기화, 세션 관리, 메시지 전송, 종료 등 핵심 로직을 포함합니다.
+ */
+
 #include "ChatServer.hpp"
 #include "ChatSession.hpp"
 // #include "ChatListener.hpp" // TCP 리스너 제거 - WebSocketListener 사용
@@ -21,6 +27,12 @@ namespace beast = boost::beast;
 //------------------------------------------------------------------------------
 // ChatServer Implementation
 //------------------------------------------------------------------------------
+/**
+ * @details `io_context`와 포트 번호 등 서버 운영에 필요한 기본 정보들을 초기화합니다.
+ *          종료 시그널(SIGINT, SIGTERM)을 처리할 `signal_set`을 설정하고,
+ *          서버의 주요 데이터 접근을 동기화할 `strand`를 생성합니다.
+ *          메시지 히스토리 관리 객체도 이 때 생성됩니다.
+ */
 ChatServer::ChatServer(net::io_context &ioc,
                        unsigned short port,
                        const std::string &config_file,
@@ -43,6 +55,12 @@ ChatServer::~ChatServer()
     spdlog::info("[ChatServer {}] Destructor called.", fmt::ptr(this));
 }
 
+/**
+ * @details 서버가 이미 중지 상태인 경우 실행을 거부합니다.
+ *          설정 파일과 사용자 정보를 로드하고, `start_listening`을 호출하여
+ *          클라이언트 연결을 받을 준비를 합니다. (현재 구조에서는 WebSocket 리스너가 외부에서 생성됨)
+ *          `do_await_stop`을 호출하여 정상 종료를 위한 시그널 대기를 시작합니다.
+ */
 void ChatServer::run()
 {
     if (stopped_.load())
@@ -69,6 +87,10 @@ void ChatServer::run()
     spdlog::info("[ChatServer {}] Server startup sequence complete. Listening on port {}", fmt::ptr(this), port_);
 }
 
+/**
+ * @details 현재 서버 아키텍처에서는 `main.cpp`에서 직접 HTTP/WebSocket 리스너를 생성하고
+ *          `ChatServer`는 세션 관리 역할에 집중하므로, 이 함수는 항상 true를 반환합니다.
+ */
 bool ChatServer::start_listening()
 {
     // TCP 리스너 제거 - WebSocket 리스너는 main.cpp에서 직접 생성
@@ -77,6 +99,14 @@ bool ChatServer::start_listening()
     return true;
 }
 
+/**
+ * @details `stopped_` 플래그를 `true`로 설정하여 새로운 작업을 막습니다.
+ *          `io_context`에 `post`하여 서버 종료 작업을 예약합니다. 이 작업은 다음을 포함합니다:
+ *          - 시그널 핸들러 취소
+ *          - `strand_`를 통해 모든 세션, 닉네임, 채팅방 정보 정리 및 각 세션의 `stop_session` 호출
+ *          - 히스토리 관리자 및 기타 리소스 정리
+ *          - 설정 및 사용자 정보 저장
+ */
 void ChatServer::stop()
 {
     if (stopped_.exchange(true))
@@ -124,6 +154,10 @@ void ChatServer::stop()
         spdlog::info("[ChatServer {}] Server stop sequence initiated on io_context.", fmt::ptr(this)); });
 }
 
+/**
+ * @details `signals_` 객체를 사용하여 비동기적으로 종료 시그널을 기다립니다.
+ *          시그널을 받으면 `stop()` 메서드를 호출하여 서버를 안전하게 종료시킵니다.
+ */
 void ChatServer::do_await_stop()
 {
     signals_.async_wait(
@@ -137,6 +171,12 @@ void ChatServer::do_await_stop()
         });
 }
 
+/**
+ * @details `net::dispatch`를 사용하여 `strand_` 위에서 작업을 수행함으로써 스레드 안전성을 보장합니다.
+ *          `sessions_` 셋에 새로운 세션을 추가하고 로그를 남깁니다.
+ *          만약 세션이 초기 `remote_id`가 아닌 실제 닉네임을 가지고 있다면 (재접속 등의 경우),
+ *          입장 메시지를 브로드캐스트합니다.
+ */
 void ChatServer::join(SessionPtr session)
 {
     if (!session || stopped_)
@@ -156,6 +196,13 @@ void ChatServer::join(SessionPtr session)
         } });
 }
 
+/**
+ * @details `net::dispatch`와 `strand_`를 사용하여 동기화된 컨텍스트에서 다음을 수행합니다:
+ *          1. 세션이 참여 중인 모든 방에서 퇴장시킵니다 (`leave_all_rooms_impl`).
+ *          2. 세션이 유효한 닉네임을 가졌다면, 해당 닉네임을 `nicknames_` 맵에서 제거합니다 (`unregister_nickname`).
+ *          3. `sessions_` 셋에서 세션을 제거합니다.
+ *          4. 세션이 유효한 닉네임을 가졌었다면, 퇴장 메시지를 전체에 브로드캐스트합니다.
+ */
 void ChatServer::leave(SessionPtr session)
 {
     if (!session)
@@ -187,6 +234,12 @@ void ChatServer::leave(SessionPtr session)
         } });
 }
 
+/**
+ * @details 이 함수는 반드시 `strand_` 위에서 실행되어야 합니다.
+ *          `sessions_`의 복사본을 만들어 순회하면서, 각 세션의 `strand`에 `deliver` 작업을 `post`합니다.
+ *          이는 각 세션의 쓰기 큐를 독립적으로 관리하고, `sessions_` 컬렉션의 변경에 영향을 받지 않도록 합니다.
+ *          메시지 발신자는 브로드캐스트 대상에서 제외됩니다.
+ */
 void ChatServer::broadcast_impl(const std::string &message, const SessionPtr &sender)
 {
     spdlog::debug("[ChatServer {}] Broadcasting globally (sender: {}): {}", 
@@ -225,6 +278,10 @@ void ChatServer::broadcast_impl(const std::string &message, const SessionPtr &se
     }
 }
 
+/**
+ * @details 외부에서 `broadcast`를 호출하면, 실제 구현부인 `broadcast_impl`이
+ *          `strand_` 위에서 실행되도록 `net::post`를 통해 작업을 예약합니다.
+ */
 void ChatServer::broadcast(const std::string &message, SessionPtr sender)
 {
     if (stopped_)
@@ -239,6 +296,10 @@ void ChatServer::broadcast(const std::string &message, SessionPtr sender)
               });
 }
 
+/**
+ * @details `rooms_mutex_`로 `rooms_` 맵을 보호하며 해당 채팅방을 찾습니다.
+ *          찾은 채팅방 객체의 `broadcast` 메서드를 호출하여 방 참여자들에게 메시지를 전달합니다.
+ */
 bool ChatServer::broadcast_to_room(const std::string &room_name,
                                    const std::string &message,
                                    SessionPtr sender)
@@ -269,6 +330,11 @@ bool ChatServer::broadcast_to_room(const std::string &room_name,
     return false;
 }
 
+/**
+ * @details 비동기적으로 수신자 닉네임을 찾아(`find_session_by_nickname_async`),
+ *          수신자가 존재하면 메시지를 `deliver`하고, 송신자에게도 확인 메시지를 보냅니다.
+ *          수신자가 없으면 송신자에게 에러 메시지를 보냅니다.
+ */
 bool ChatServer::send_private_message(const std::string &message,
                                       SessionPtr sender,
                                       const std::string &receiver_nick)
@@ -306,6 +372,10 @@ bool ChatServer::send_private_message(const std::string &message,
     return true;
 }
 
+/**
+ * @details 닉네임 유효성을 먼저 검사하고, 통과하면 `try_register_nickname_impl`을
+ *          `strand_` 위에서 실행하도록 `net::dispatch`를 통해 예약합니다.
+ */
 void ChatServer::try_register_nickname_async(const std::string &nickname,
                                              SessionPtr session,
                                              std::function<void(bool)> handler)
@@ -331,6 +401,16 @@ void ChatServer::try_register_nickname_async(const std::string &nickname,
                   { try_register_nickname_impl(nickname_copy, weak_session, std::move(handler)); });
 }
 
+/**
+ * @details 이 함수는 반드시 `strand_` 위에서 실행되어야 합니다.
+ *          `nicknames_mutex_`로 `nicknames_` 맵을 보호하면서 다음을 수행합니다:
+ *          1. 요청된 닉네임이 이미 사용 중인지 확인합니다.
+ *             - 사용 중이지만 `weak_ptr`이 만료되었다면, 해당 항목을 제거하고 등록 가능으로 처리합니다.
+ *             - 같은 세션이 재요청한 경우 등록 가능으로 처리합니다.
+ *          2. 등록이 가능하다면, 이전 닉네임이 있었다면 해당 매핑을 제거합니다.
+ *          3. 새로운 닉네임과 세션을 `nicknames_` 맵에 등록합니다.
+ *          최종 결과를 콜백 핸들러를 통해 비동기적으로 전달합니다.
+ */
 void ChatServer::try_register_nickname_impl(const std::string &nickname_copy,
                                             std::weak_ptr<SessionInterface> weak_session,
                                             std::function<void(bool)> handler)
@@ -397,6 +477,9 @@ void ChatServer::try_register_nickname_impl(const std::string &nickname_copy,
     net::post(session->get_strand(), [handler = std::move(handler), final_result]() { handler(final_result); });
 }
 
+/**
+ * @details `nicknames_mutex_`로 보호하면서 `nicknames_` 맵에서 해당 닉네임을 찾아 제거합니다.
+ */
 void ChatServer::unregister_nickname(const std::string &nickname)
 {
     if (nickname.empty())
@@ -412,6 +495,7 @@ void ChatServer::unregister_nickname(const std::string &nickname)
     }
 }
 
+/**
 void ChatServer::find_session_by_nickname_async(const std::string &nickname,
                                                 std::function<void(SessionPtr)> handler)
 {

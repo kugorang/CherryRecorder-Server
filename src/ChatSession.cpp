@@ -1,32 +1,42 @@
-// src/ChatSession.cpp
-#include "ChatSession.hpp" // Include the corresponding header first
+/**
+ * @file ChatSession.cpp
+ * @brief `ChatSession` 클래스의 구현부입니다.
+ * @details 이 파일은 `ChatSession.hpp`에 선언된 멤버 함수들을 실제로 정의합니다.
+ */
 
-#include "ChatServer.hpp" // Include ChatServer definition
-#include "spdlog/spdlog.h" // For logging
+#include "ChatSession.hpp" // 해당 클래스의 헤더를 가장 먼저 인클루드합니다.
 
-// Necessary Boost.Asio includes
-#include <boost/asio/read_until.hpp>
-#include <boost/asio/write.hpp>
-#include <boost/asio/dispatch.hpp>
-#include <boost/asio/buffer.hpp>
-#include <boost/asio/bind_executor.hpp>  // bind_executor 사용
+#include "ChatServer.hpp"  // ChatServer 클래스 정의 인클루드
+#include "spdlog/spdlog.h" // 로깅 라이브러리 spdlog 인클루드
 
-// Standard library includes
-#include <memory>    // For enable_shared_from_this, shared_ptr
+// 필요한 Boost.Asio 헤더들
+#include <boost/asio/bind_executor.hpp> // 비동기 작업 핸들러를 특정 executor(strand)에 바인딩
+#include <boost/asio/buffer.hpp>        // 데이터 버퍼 관리를 위함
+#include <boost/asio/dispatch.hpp>      // 핸들러를 executor 컨텍스트 내에서 즉시 실행
+#include <boost/asio/read_until.hpp>    // 특정 구분자까지 데이터를 읽는 비동기 작업
+#include <boost/asio/write.hpp>         // 데이터를 쓰는 비동기 작업
+
+// 표준 라이브러리 헤더들
+#include <atomic> // 원자적 연산을 위함 (std::atomic)
+#include <deque>  // 양방향 큐 (전송 메시지 큐로 사용)
+#include <memory> // 스마트 포인터 (std::shared_ptr, std::enable_shared_from_this)
 #include <string>
 #include <vector>
-#include <deque>
-#include <atomic>
-#include <fmt/format.h>
+#include <fmt/format.h> // 문자열 포맷팅 라이브러리
 
 namespace net = boost::asio;
 using tcp = net::ip::tcp;
 namespace beast = boost::beast;
 
 //------------------------------------------------------------------------------
-// ChatSession Implementation
+// ChatSession 클래스 멤버 함수 구현
 //------------------------------------------------------------------------------
 
+/**
+ * @details 소켓과 서버 포인터를 멤버 변수에 저장하고, 스트랜드를 초기화합니다.
+ *          클라이언트의 원격 엔드포인트 정보(IP:PORT)를 `remote_id_`로,
+ *          초기 `nickname_`으로 설정합니다.
+ */
 ChatSession::ChatSession(tcp::socket socket, std::shared_ptr<ChatServer> server)
     : socket_(std::move(socket)), server_(server), strand_(net::make_strand(socket_.get_executor())), stopped_(false), writing_flag_(false)
 {
@@ -41,11 +51,20 @@ ChatSession::ChatSession(tcp::socket socket, std::shared_ptr<ChatServer> server)
     nickname_ = remote_id_; // Default nickname
 }
 
+/**
+ * @details 세션이 소멸될 때 로그를 남깁니다. 닉네임 해제는 `ChatServer::leave`에서 처리됩니다.
+ */
 ChatSession::~ChatSession() {
     spdlog::info("[ChatSession {} - {}] Destroyed.", static_cast<void*>(this), remote_id_);
     // Nickname unregistration is handled by ChatServer::leave
 }
 
+/**
+ * @details 세션이 이미 중지된 경우 아무 작업도 하지 않습니다.
+ *          `ChatServer`에 자신을 참여자로 등록(`join`)하고,
+ *          클라이언트에게 환영 메시지들을 전송한 후,
+ *          첫 비동기 읽기 작업(`do_read`)을 시작합니다.
+ */
 void ChatSession::start()
 {
     if (stopped_.load())
@@ -75,6 +94,12 @@ void ChatSession::start()
     });
 }
 
+/**
+ * @details `stopped_` 플래그를 원자적으로 true로 설정하여 중복 실행을 방지합니다.
+ *          스트랜드를 통해 소켓에 대한 모든 비동기 작업을 취소하고,
+ *          소켓을 정상 종료(shutdown)한 후 닫습니다.
+ *          마지막으로 `ChatServer`에게 `leave`를 호출하여 세션 제거를 요청합니다.
+ */
 void ChatSession::stop_session() {
     if (stopped_.exchange(true)) return; // Ensure stop logic runs only once
 
@@ -115,6 +140,12 @@ void ChatSession::stop_session() {
     });
 }
 
+/**
+ * @details 메시지를 `write_msgs_` 큐에 추가합니다. `net::post`를 사용하여
+ *          이 작업을 세션의 스트랜드에서 안전하게 실행하도록 합니다.
+ *          만약 쓰기 작업이 진행 중이지 않았다면(`writing_flag_`가 false이고 큐가 비어있었다면),
+ *          새로운 쓰기 작업(`do_write_strand`)을 시작하여 큐의 메시지를 전송합니다.
+ */
 void ChatSession::deliver(const std::string& msg) {
     auto self = shared_from_this();
     net::post(strand_, [this, self, msg]() {
@@ -152,6 +183,16 @@ void ChatSession::set_current_room(const std::string& room_name) {
 
 // --- Private Methods ---
 
+/**
+ * @details 스트림에서 명령어와 인자를 파싱합니다.
+ *          - `/nick`: 닉네임 변경을 시도합니다. 유효성 검사를 거친 후 `ChatServer`에 비동기적으로 닉네임 등록을 요청합니다.
+ *          - `/join`: 채팅방 참여를 시도합니다. `ChatServer`에 비동기적으로 방 참여를 요청합니다.
+ *          - `/leave`: 현재 채팅방에서 나갑니다.
+ *          - `/users`: 현재 접속 중인 모든 사용자 목록을 요청합니다.
+ *          - `/quit`: 세션을 종료합니다.
+ *          - `/help`: 사용 가능한 명령어 목록을 보여줍니다.
+ *          명령어가 아닌 경우, 일반 채팅 메시지로 간주하고 현재 방 또는 전체에 브로드캐스트합니다.
+ */
 void ChatSession::process_command(const std::string& command_line) {
     if (stopped_) return;
     std::vector<std::string> responses; // For synchronous error/info messages
@@ -334,7 +375,11 @@ void ChatSession::process_command(const std::string& command_line) {
     }
 }
 
-
+/**
+ * @details `net::async_read_until`을 사용하여 소켓으로부터 데이터를 비동기적으로 읽습니다.
+ *          데이터는 `read_buffer_`에 저장되며, 개행 문자 `\n`를 만날 때까지 읽습니다.
+ *          읽기 작업 완료 시 `on_read` 핸들러가 호출됩니다. 핸들러는 스트랜드 위에서 실행됩니다.
+ */
 void ChatSession::do_read() {
     if (stopped_ || !socket_.is_open()) return;
     auto self = shared_from_this();
@@ -349,6 +394,13 @@ void ChatSession::do_read() {
     );
 }
 
+/**
+ * @details 읽기 작업의 결과를 처리합니다.
+ *          - 에러가 없는 경우: 버퍼에서 한 줄씩 메시지를 추출하여 `process_command`로 전달합니다.
+ *            버퍼에 데이터가 남아있을 수 있으므로, 모든 줄을 처리한 후 다시 `do_read`를 호출하여 다음 메시지를 기다립니다.
+ *          - 에러가 발생한 경우: EOF(연결 종료)나 연결 리셋 등 일반적인 종료 상황은 정보 로그를,
+ *            그 외의 에러는 에러 로그를 남기고 `stop_session`을 호출하여 세션을 종료합니다.
+ */
 void ChatSession::on_read(beast::error_code ec, std::size_t length) {
     // Check if stopped or socket closed before processing
     if (stopped_ || !socket_.is_open()) return;
@@ -402,6 +454,12 @@ void ChatSession::on_read(beast::error_code ec, std::size_t length) {
     }
 }
 
+/**
+ * @details 이 함수는 반드시 스트랜드 내에서 호출되어야 합니다.
+ *          `writing_flag_`를 true로 설정하여 다른 쓰기 작업이 동시에 시작되지 않도록 하고,
+ *          `net::async_write`를 호출하여 `write_msgs_` 큐의 첫 번째 메시지를 클라이언트에게 전송합니다.
+ *          쓰기 작업 완료 시 `on_write` 핸들러가 호출됩니다.
+ */
 void ChatSession::do_write_strand() {
     // Pre-conditions checked before calling: must be on strand, not stopped, queue not empty, not writing
     if (stopped_ || write_msgs_.empty() || writing_flag_) {
@@ -428,6 +486,13 @@ void ChatSession::do_write_strand() {
     );
 }
 
+/**
+ * @details 비동기 쓰기 작업의 결과를 처리합니다.
+ *          - 에러가 없는 경우: 성공적으로 전송된 메시지를 `write_msgs_` 큐에서 제거합니다.
+ *          - 에러가 발생한 경우: 에러 로그를 남기고 세션을 종료합니다.
+ *          `writing_flag_`를 false로 리셋한 후, 만약 큐에 아직 전송할 메시지가 남아있다면 `do_write_strand`를
+ *          다시 호출하여 다음 메시지를 전송합니다. 이를 통해 메시지가 순서대로 계속 전송됩니다.
+ */
 void ChatSession::on_write(std::error_code ec, std::size_t /*length*/) {
     // Already on strand via bind_executor
     if (stopped_) {
