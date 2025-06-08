@@ -40,9 +40,6 @@
           }
         ]
       },
-      "dockerSecurityOptions": [
-        "seccomp=unconfined"
-      ],
       "ulimits": [
         {
           "name": "nofile",
