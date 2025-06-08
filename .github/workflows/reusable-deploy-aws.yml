@@ -176,7 +176,8 @@ jobs:
               --cluster ${{ inputs.ecs_cluster_name }} \
               --service ${{ inputs.ecs_service_name }} \
               --task-definition ${{ steps.register-task.outputs.task_def_arn }} \
-              --force-new-deployment 2>&1 | tee update_result.txt; then
+              --force-new-deployment \
+              --network-configuration "awsvpcConfiguration={subnets=[${{ inputs.subnet_ids }}],securityGroups=[${{ inputs.security_group_ids }}],assignPublicIp=DISABLED}" 2>&1 | tee update_result.txt; then
               
               # 에러가 포트 관련인지 확인
               if grep -q "container port" update_result.txt; then
