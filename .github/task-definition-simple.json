@@ -1,0 +1,75 @@
+{
+  "family": "cherryrecorder-simple",
+  "executionRoleArn": "$EXECUTION_ROLE_ARN",
+  "taskRoleArn": "$EXECUTION_ROLE_ARN",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["EC2"],
+  "cpu": "950",
+  "memory": "900",
+  "containerDefinitions": [
+    {
+      "name": "cherryrecorder-server",
+      "image": "placeholder",
+      "cpu": 950,
+      "memory": 900,
+      "memoryReservation": 700,
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp",
+          "name": "http"
+        },
+        {
+          "containerPort": 33334,
+          "protocol": "tcp",
+          "name": "websocket"
+        }
+      ],
+      "environment": [
+        {
+          "name": "HTTP_PORT",
+          "value": "8080"
+        },
+        {
+          "name": "WS_PORT",
+          "value": "33334"
+        },
+        {
+          "name": "GOOGLE_MAPS_API_KEY",
+          "value": "${GOOGLE_MAPS_API_KEY}"
+        },
+        {
+          "name": "HTTP_BIND_IP",
+          "value": "0.0.0.0"
+        },
+        {
+          "name": "HTTP_THREADS",
+          "value": "2"
+        },
+        {
+          "name": "LOG_LEVEL",
+          "value": "INFO"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/cherryrecorder-simple",
+          "awslogs-region": "$AWS_REGION",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:8080/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+} 

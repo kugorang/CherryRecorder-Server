@@ -247,9 +247,9 @@ jobs:
       # GitHub 저장소 Variables 참조
       server_address: ${{ vars.SERVER_ADDRESS }}
       health_check_port: ${{ vars.HEALTH_CHECK_PORT_VALUE }} # HTTP 포트
-      http_port: ${{ vars.HTTP_PORT_VALUE }}
-      # WebSocket 포트 (33334)
-      websocket_port: ${{ vars.WS_PORT_VALUE }}
+      # NLB 리스너 포트를 명시적으로 지정 (GitHub Variables 대신)
+      http_port: '58080'        # NLB HTTPS 리스너 포트
+      websocket_port: '33335'   # NLB WSS 리스너 포트
       # 아래는 선택적 입력 (필요 시 vars에서 가져오거나 직접 값 지정)
       # max_attempts: '6'
       # retry_delay_seconds: '10'
