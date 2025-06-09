@@ -37,7 +37,7 @@ void WebSocketSSLSession::run()
 void WebSocketSSLSession::on_handshake(beast::error_code ec)
 {
     if (ec) {
-        spdlog::error("[WebSocketSSLSession {}] SSL handshake failed: {}", remote_id_, ec.message());
+        spdlog::error("WebSocketSSLSession: Handshake failed: {}", ec.message());
         return;
     }
     
@@ -79,7 +79,7 @@ void WebSocketSSLSession::on_ssl_handshake(beast::error_code ec)
 void WebSocketSSLSession::on_accept(beast::error_code ec)
 {
     if (ec) {
-        spdlog::error("[WebSocketSSLSession {}] Accept failed: {}", remote_id_, ec.message());
+        spdlog::info("[WebSocketSSLSession {}] Accept failed: {}", remote_id_, ec.message());
         return;
     }
     

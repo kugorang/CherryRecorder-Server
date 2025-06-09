@@ -40,12 +40,21 @@ WebSocketSession::~WebSocketSession()
  */
 void WebSocketSession::run()
 {
-    // WebSocket 핸드셰이크를 수락
-    auto self = std::enable_shared_from_this<WebSocketSession>::shared_from_this();
+    // Turn off the timeout on the tcp_stream, because
+    // the websocket stream has its own timeout system.
+    beast::get_lowest_layer(ws_).expires_never();
+
+    // Set suggested timeout settings for the websocket
+    ws_.set_option(
+        websocket::stream_base::timeout::suggested(
+            beast::role_type::server));
+
+    // Accept the websocket handshake
     ws_.async_accept(
+        req,
         beast::bind_front_handler(
             &WebSocketSession::on_accept,
-            self));
+            shared_from_this()));
 }
 
 /**
@@ -57,7 +66,7 @@ void WebSocketSession::run()
 void WebSocketSession::on_accept(beast::error_code ec)
 {
     if (ec) {
-        spdlog::error("[WebSocketSession {}] Accept failed: {}", remote_id_, ec.message());
+        spdlog::info("[WebSocketSession {}] Accept failed: {}", remote_id_, ec.message());
         return;
     }
     
