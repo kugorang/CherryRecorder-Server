@@ -577,7 +577,6 @@ vcpkg-*.json
 
 # Specific executables
 CherryRecorder-Server-App
-CherryRecorder-Proxygen-App
 
 # Local utility scripts
 clean_vcpkg_cache.py

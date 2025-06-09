@@ -4,8 +4,8 @@
   "taskRoleArn": "$EXECUTION_ROLE_ARN",
   "networkMode": "awsvpc",
   "requiresCompatibilities": [ "EC2" ],
-  "cpu": "950",
-  "memory": "900",
+  "cpu": "768",
+  "memory": "768",
   "pidMode": "host",
   "ipcMode": "host",
   "runtimePlatform": {
@@ -16,9 +16,9 @@
     {
       "name": "$CONTAINER_NAME",
       "image": "placeholder",
-      "cpu": 950,
-      "memory": 900,
-      "memoryReservation": 700,
+      "cpu": 768,
+      "memory": 768,
+      "memoryReservation": 512,
       "essential": true,
       "privileged": true,
       "linuxParameters": {
@@ -30,33 +30,42 @@
           ]
         },
         "initProcessEnabled": true,
-        "sharedMemorySize": 64,
+        "sharedMemorySize": 32,
         "tmpfs": [
           {
             "containerPath": "/tmp",
-            "size": 128
+            "size": 64
           },
           {
             "containerPath": "/dev/shm",
-            "size": 64
+            "size": 32
+          }
+        ],
+        "sysctls": [
+          {
+            "name": "net.ipv4.tcp_tw_reuse",
+            "value": "1"
+          },
+          {
+            "name": "net.core.somaxconn",
+            "value": "128"
+          },
+          {
+            "name": "net.ipv4.tcp_max_syn_backlog",
+            "value": "128"
           }
         ]
       },
       "ulimits": [
         {
           "name": "nofile",
-          "softLimit": 65536,
-          "hardLimit": 65536
-        },
-        {
-          "name": "nproc",
           "softLimit": 4096,
           "hardLimit": 4096
         },
         {
-          "name": "memlock",
-          "softLimit": -1,
-          "hardLimit": -1
+          "name": "nproc",
+          "softLimit": 1024,
+          "hardLimit": 1024
         }
       ],
       "portMappings": [
@@ -85,36 +94,20 @@
           "value": "false"
         },
         {
+          "name": "HTTP_THREADS",
+          "value": "2"
+        },
+        {
+          "name": "CHAT_THREADS",
+          "value": "2"
+        },
+        {
           "name": "GOOGLE_MAPS_API_KEY",
           "value": "${GOOGLE_MAPS_API_KEY}"
         },
         {
           "name": "LOG_LEVEL",
-          "value": "INFO"
-        },
-        {
-          "name": "FOLLY_EVENTBASE_BACKEND",
-          "value": "poll"
-        },
-        {
-          "name": "FOLLY_DISABLE_EPOLL",
-          "value": "1"
-        },
-        {
-          "name": "GLOG_minloglevel",
-          "value": "0"
-        },
-        {
-          "name": "GLOG_v",
-          "value": "2"
-        },
-        {
-          "name": "GOMAXPROCS",
-          "value": "1"
-        },
-        {
-          "name": "OMP_NUM_THREADS",
-          "value": "1"
+          "value": "WARNING"
         }
       ],
       "logConfiguration": {
@@ -130,10 +123,10 @@
           "CMD-SHELL",
           "curl -f http://localhost:8080/health || exit 1"
         ],
-        "interval": 30,
-        "timeout": 5,
+        "interval": 120,
+        "timeout": 10,
         "retries": 3,
-        "startPeriod": 60
+        "startPeriod": 180
       }
     }
   ]

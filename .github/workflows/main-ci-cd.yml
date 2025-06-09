@@ -62,6 +62,10 @@ name: CI/CD - CherryRecorder Server Orchestrator
 # HTTPS_PORT_VALUE:        컨테이너 내부에서 HTTPS 서버가 리슨할 포트 번호 (기본값: 58080).
 #                          (reusable-deploy-aws -> Task Definition 환경 변수 및 포트 매핑)
 # WS_PORT_VALUE:           컨테이너 내부에서 WebSocket(WS) Chat 서버가 리슨할 포트 번호 (기본값: 33334, 개발용).
+# NLB_HTTP_PORT:           NLB HTTPS 리스너 포트 번호 (예: 58080).
+#                          (reusable-connection-check -> 'http_port' 입력으로 사용)
+# NLB_WEBSOCKET_PORT:      NLB WSS 리스너 포트 번호 (예: 33335).
+#                          (reusable-connection-check -> 'websocket_port' 입력으로 사용)
 #
 # [애플리케이션 내부 설정 (선택적 Variables)]
 # - 아래 변수들은 필요에 따라 GitHub Variables로 정의하고, reusable-deploy-aws 워크플로우의
@@ -247,9 +251,9 @@ jobs:
       # GitHub 저장소 Variables 참조
       server_address: ${{ vars.SERVER_ADDRESS }}
       health_check_port: ${{ vars.HEALTH_CHECK_PORT_VALUE }} # HTTP 포트
-      # NLB 리스너 포트를 명시적으로 지정 (GitHub Variables 대신)
-      http_port: '58080'        # NLB HTTPS 리스너 포트
-      websocket_port: '33335'   # NLB WSS 리스너 포트
+      # NLB 리스너 포트를 GitHub Variables에서 가져오기
+      http_port: ${{ vars.NLB_HTTP_PORT }}        # NLB HTTPS 리스너 포트
+      websocket_port: ${{ vars.NLB_WEBSOCKET_PORT }}   # NLB WSS 리스너 포트
       # 아래는 선택적 입력 (필요 시 vars에서 가져오거나 직접 값 지정)
       # max_attempts: '6'
       # retry_delay_seconds: '10'

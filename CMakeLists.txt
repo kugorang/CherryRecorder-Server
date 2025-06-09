@@ -78,8 +78,6 @@ find_package(OpenSSL REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(Threads REQUIRED) # Find pthreads on non-Windows
 
-# Proxygen 제거됨 - Beast만 사용
-
 message(STATUS "Boost include directories: ${Boost_INCLUDE_DIRS}")
 message(STATUS "OpenSSL include directories: ${OPENSSL_INCLUDE_DIR}")
 message(STATUS "spdlog include directories: ${spdlog_INCLUDE_DIRS}") # Check variable name from find_package
@@ -141,8 +139,6 @@ if(NOT WIN32)
     endif()
 endif()
 message(STATUS "Configured target: HttpServerLib library (HTTP Health)")
-
-# Proxygen 제거됨 - Beast만 사용
 
 # --- 라이브러리 타겟 정의: ChatServerLib (채팅 서버 로직) ---
 add_library(ChatServerLib STATIC)
@@ -206,8 +202,6 @@ message(STATUS "Configured target: CherryRecorder-Server-App executable (Beast-b
 # CherryRecorder-App 별칭 추가 (Dockerfile 호환성)
 add_executable(CherryRecorder-App ALIAS CherryRecorder-Server-App)
 message(STATUS "Created alias: CherryRecorder-App -> CherryRecorder-Server-App")
-
-# Proxygen 제거됨 - Beast만 사용
 
 # ----------------------------------------------------------------------
 # 테스트 설정 (gtest)
