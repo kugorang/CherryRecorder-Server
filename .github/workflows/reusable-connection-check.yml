@@ -17,17 +17,12 @@ on:
         description: 'HTTP 서버 포트 번호'
         required: false
         type: string
-        default: "8080"
-      echo_server_port:
-        description: '(Deprecated) TCP Echo 서버 리슨 포트 번호 - 호환성을 위해 유지'
-        required: false
-        type: string
-        default: "33333"
+        default: "58080"
       websocket_port:
         description: 'WebSocket Chat 서버 포트 번호'
         required: false
         type: string
-        default: "33334"
+        default: "33335"
       max_attempts:
         description: '각 포트에 대한 최대 연결 시도 횟수'
         required: false
@@ -58,8 +53,8 @@ jobs:
     name: Check Connection to Server Ports
     runs-on: ubuntu-24.04
     env:
-      HTTP_PORT: ${{ inputs.http_port || '58080' }}
-      WEBSOCKET_PORT: ${{ inputs.websocket_port || '33335' }}
+      HTTP_PORT: ${{ inputs.http_port }}
+      WEBSOCKET_PORT: ${{ inputs.websocket_port }}
     outputs:
       status: ${{ steps.set-status.outputs.final_status }}
     steps:
@@ -99,8 +94,8 @@ jobs:
           while [ $attempt -le $MAX_ATTEMPTS ]; do
             echo "Attempt $attempt/$MAX_ATTEMPTS..."
             
-            # -k: 인증서 유효성 검사 생략 (테스트 환경용)
-            if curl -sS -k --fail --connect-timeout $CONNECT_TIMEOUT "https://${{ inputs.server_address }}:${HTTP_PORT}/health"; then
+            # 프로덕션 환경에서는 유효한 인증서를 사용하므로 -k 옵션 제거
+            if curl -sS --fail --connect-timeout $CONNECT_TIMEOUT "https://${{ inputs.server_address }}:${HTTP_PORT}/health"; then
               echo "Health check successful on port ${HTTP_PORT}!"
               break
             fi
