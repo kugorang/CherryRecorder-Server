@@ -44,7 +44,7 @@ void WebSocketSession::run()
     ws_.async_accept(
         beast::bind_front_handler(
             &WebSocketSession::on_accept,
-            shared_from_this()));
+            std::enable_shared_from_this<WebSocketSession>::shared_from_this()));
 }
 
 /**
@@ -96,12 +96,11 @@ void WebSocketSession::on_accept(beast::error_code ec)
 void WebSocketSession::do_read()
 {
     // 비동기 읽기 작업 시작
-    auto self = std::enable_shared_from_this<WebSocketSession>::shared_from_this();
     ws_.async_read(
         buffer_,
         beast::bind_front_handler(
             &WebSocketSession::on_read,
-            self));
+            std::enable_shared_from_this<WebSocketSession>::shared_from_this()));
 }
 
 /**
@@ -300,12 +299,11 @@ void WebSocketSession::do_write()
     }
     
     is_writing_ = true;
-    auto self = std::enable_shared_from_this<WebSocketSession>::shared_from_this();
     ws_.async_write(
         net::buffer(*write_msgs_.front()),
         beast::bind_front_handler(
             &WebSocketSession::on_write,
-            self));
+            std::enable_shared_from_this<WebSocketSession>::shared_from_this()));
 }
 
 /**
