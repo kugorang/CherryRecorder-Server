@@ -9,6 +9,10 @@
 #include <boost/json.hpp>
 #include <cstdlib>
 #include <iostream>
+#include <sstream>
+#include <chrono>
+#include <mutex>
+#include <thread>
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -283,8 +287,51 @@ json::value PlacesApiHandler::requestGooglePlacesApi(
         std::string host = "places.googleapis.com";
         auto const results = resolver.resolve(host, "443");
         
-        // 연결 설정
-        net::connect(stream.next_layer(), results.begin(), results.end());
+        // 연결 설정 (재시도 로직 포함)
+        int retry_count = 0;
+        const int max_retries = 3;
+        boost::system::error_code last_error;
+        
+        while (retry_count < max_retries) {
+            try {
+                boost::system::error_code ec;
+                net::connect(stream.next_layer(), results.begin(), results.end(), ec);
+                
+                if (!ec) {
+                    // 연결 성공
+                    break;
+                }
+                
+                last_error = ec;
+                std::cerr << "[PlacesApiHandler] Connect attempt " << (retry_count + 1) 
+                          << " failed to " << host << ": " 
+                          << ec.message() << " [" << ec.value() << "]" << std::endl;
+                
+                // EADDRNOTAVAIL (99) 에러인 경우 재시도
+                if (ec.value() == 99 && retry_count < max_retries - 1) {
+                    // 잠시 대기 (지수 백오프)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100 * (retry_count + 1)));
+                    
+                    // 새로운 IO context와 소켓으로 재시도
+                    ioc.restart();
+                    ssl::stream<tcp::socket> new_stream(ioc, ctx);
+                    stream = std::move(new_stream);
+                    retry_count++;
+                } else {
+                    throw boost::system::system_error(ec);
+                }
+            } catch (const std::exception& e) {
+                if (retry_count >= max_retries - 1) {
+                    std::cerr << "[PlacesApiHandler] All connection attempts failed: " << e.what() << std::endl;
+                    throw;
+                }
+                retry_count++;
+            }
+        }
+        
+        if (retry_count >= max_retries && last_error) {
+            throw boost::system::system_error(last_error);
+        }
         stream.handshake(ssl::stream_base::client);
         
         // HTTP 요청 준비 (메서드 파라미터 사용)
@@ -628,3 +675,4 @@ http::response<http::string_body> PlacesApiHandler::handlePlacePhoto(
                                   std::string("Error fetching place photo: ") + e.what());
     }
 }
+

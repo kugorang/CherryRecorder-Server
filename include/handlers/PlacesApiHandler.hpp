@@ -15,6 +15,8 @@
 namespace beast = boost::beast;
 namespace http = beast::http;
 namespace json = boost::json;
+namespace net = boost::asio;
+namespace ssl = boost::asio::ssl;
 
 /**
  * @class PlacesApiHandler
@@ -82,6 +84,8 @@ private:
     mutable std::mutex m_cacheMutex;
     std::unordered_map<std::string, CacheEntry> m_cache;
     static constexpr std::chrono::minutes CACHE_DURATION{5}; // 5분 캐시
+
+
 
     /**
      * @brief Google Places API 요청 실행
