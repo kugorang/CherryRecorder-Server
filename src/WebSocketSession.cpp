@@ -40,18 +40,8 @@ WebSocketSession::~WebSocketSession()
  */
 void WebSocketSession::run()
 {
-    // Turn off the timeout on the tcp_stream, because
-    // the websocket stream has its own timeout system.
-    beast::get_lowest_layer(ws_).expires_never();
-
-    // Set suggested timeout settings for the websocket
-    ws_.set_option(
-        websocket::stream_base::timeout::suggested(
-            beast::role_type::server));
-
-    // Accept the websocket handshake
+    // WebSocket 핸드셰이크를 수락
     ws_.async_accept(
-        req,
         beast::bind_front_handler(
             &WebSocketSession::on_accept,
             shared_from_this()));
@@ -65,10 +55,16 @@ void WebSocketSession::run()
  */
 void WebSocketSession::on_accept(beast::error_code ec)
 {
-    if (ec) {
+    if(ec)
+    {
+        // This error is expected when the health checker disconnects.
+        // Log it as info to avoid spamming the error logs.
         spdlog::info("[WebSocketSession {}] Accept failed: {}", remote_id_, ec.message());
         return;
     }
+
+    // Read a message
+    do_read();
     
     spdlog::info("[WebSocketSession {}] WebSocket connection accepted", remote_id_);
     
@@ -91,9 +87,6 @@ void WebSocketSession::on_accept(beast::error_code ec)
     deliver("* /nick <닉네임> - 닉네임 변경\r\n");
     deliver("* /pm <닉네임> <메시지> - 개인 메시지\r\n");
     deliver("* /list - 접속자 목록\r\n");
-    
-    // 메시지 읽기 시작
-    do_read();
 }
 
 /**
