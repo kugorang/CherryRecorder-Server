@@ -4,6 +4,8 @@
   "taskRoleArn": "$EXECUTION_ROLE_ARN",
   "networkMode": "awsvpc",
   "requiresCompatibilities": [ "EC2" ],
+  "cpu": "950",
+  "memory": "900",
   "pidMode": "host",
   "ipcMode": "host",
   "runtimePlatform": {
@@ -14,9 +16,9 @@
     {
       "name": "$CONTAINER_NAME",
       "image": "placeholder",
-      "cpu": 300,
-      "memory": 300,
-      "memoryReservation": 256,
+      "cpu": 950,
+      "memory": 900,
+      "memoryReservation": 700,
       "essential": true,
       "privileged": true,
       "linuxParameters": {
