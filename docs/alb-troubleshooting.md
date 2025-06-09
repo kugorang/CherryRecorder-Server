@@ -287,3 +287,87 @@ aws ec2 authorize-security-group-ingress \
   --port 58080 \
   --cidr 0.0.0.0/0
 ```
+
+## NLB 타임아웃 문제 해결
+
+### Google Places API 응답 지연으로 인한 타임아웃
+
+#### 증상
+- `/health` 체크는 정상 작동
+- `/map` 화면에서 주변 장소 검색 시 타임아웃 발생
+- 안드로이드 프로덕션 환경에서만 발생
+
+#### 원인
+1. 서버가 Google Places API를 호출할 때 응답이 느림
+2. NLB의 아이들 타임아웃 설정이 너무 짧음 (기본 350초)
+3. 서버 측 Google API 호출에 타임아웃 설정 없음
+
+#### 해결 방법
+
+##### 1. NLB 속성 수정 (즉시 적용 가능)
+
+```bash
+# 현재 NLB 속성 확인
+aws elbv2 describe-load-balancer-attributes \
+  --load-balancer-arn <NLB_ARN>
+
+# Connection idle timeout 증가 (기본 350초 → 600초)
+aws elbv2 modify-load-balancer-attributes \
+  --load-balancer-arn <NLB_ARN> \
+  --attributes Key=idle_timeout.timeout_seconds,Value=600
+
+# TCP keepalive 활성화 (연결 유지)
+aws elbv2 modify-load-balancer-attributes \
+  --load-balancer-arn <NLB_ARN> \
+  --attributes \
+    Key=tcp.idle_timeout.timeout_seconds,Value=600 \
+    Key=tcp.keepalive.enable,Value=true \
+    Key=tcp.keepalive.interval_seconds,Value=75
+```
+
+##### 2. 대상 그룹 속성 수정
+
+```bash
+# Deregistration delay 감소 (빠른 재시작 지원)
+aws elbv2 modify-target-group-attributes \
+  --target-group-arn <TARGET_GROUP_ARN> \
+  --attributes Key=deregistration_delay.timeout_seconds,Value=30
+
+# Connection termination 비활성화
+aws elbv2 modify-target-group-attributes \
+  --target-group-arn <TARGET_GROUP_ARN> \
+  --attributes Key=connection_termination.enabled,Value=false
+```
+
+##### 3. 서버 측 최적화 (장기 해결책)
+
+서버 코드에서 Google API 호출 시:
+- 연결 타임아웃 설정 (10초)
+- 응답 캐싱 구현
+- 동시 요청 수 제한
+
+##### 4. 클라이언트 측 개선
+
+```dart
+// 타임아웃 시간 증가 (15초 → 30초)
+final response = await _apiClient.post(
+  ApiConstants.nearbySearchEndpoint,
+  body: { /* ... */ },
+).timeout(const Duration(seconds: 30));
+
+// 재시도 로직 추가
+int retryCount = 0;
+while (retryCount < 3) {
+  try {
+    // API 호출
+    break;
+  } catch (e) {
+    if (e is TimeoutException && retryCount < 2) {
+      retryCount++;
+      await Future.delayed(Duration(seconds: 2));
+      continue;
+    }
+    throw e;
+  }
+}
+```

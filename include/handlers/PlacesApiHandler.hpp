@@ -4,9 +4,13 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/version.hpp>
 #include <boost/asio/strand.hpp>
+#include <boost/asio/ip/tcp.hpp>
 #include <boost/json.hpp>
 #include <string>
 #include <memory>
+#include <unordered_map>
+#include <chrono>
+#include <mutex>
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -67,6 +71,17 @@ public:
 
 private:
     std::string m_apiKey; ///< Google Places API 키
+    
+    // 캐시 구조체
+    struct CacheEntry {
+        json::value data;
+        std::chrono::steady_clock::time_point timestamp;
+    };
+    
+    // 캐시 저장소와 뮤텍스
+    mutable std::mutex m_cacheMutex;
+    std::unordered_map<std::string, CacheEntry> m_cache;
+    static constexpr std::chrono::minutes CACHE_DURATION{5}; // 5분 캐시
 
     /**
      * @brief Google Places API 요청 실행
