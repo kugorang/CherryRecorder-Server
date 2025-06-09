@@ -27,22 +27,27 @@ on:
         description: '각 포트에 대한 최대 연결 시도 횟수'
         required: false
         type: string
-        default: '6'
+        default: '12'
       retry_delay_seconds:
         description: '재시도 간 기본 지연 시간 (초) - 실제 지연은 시도 횟수에 따라 증가'
         required: false
         type: string
-        default: '10'
+        default: '15'
       connect_timeout_seconds:
         description: '각 연결 시도에 대한 타임아웃 시간 (초)'
         required: false
         type: string
-        default: '5'
+        default: '10'
       expected_http_response:
         description: 'HTTP Health Check 응답 본문에 포함되어야 하는 문자열 (선택 사항)'
         required: false
         type: string
         default: ''
+      initial_wait_seconds:
+        description: '연결 확인 시작 전 초기 대기 시간 (초)'
+        required: false
+        type: string
+        default: '30'
     outputs:
       connection_status:
         description: "모든 연결 확인 최종 결과 ('success' 또는 'fail')"
@@ -80,61 +85,124 @@ jobs:
         shell: bash
         continue-on-error: true
 
+      # 초기 대기 시간 추가 (ECS 태스크가 시작되는 시간 확보)
+      - name: Initial wait for service startup
+        run: |
+          INITIAL_WAIT=${{ inputs.initial_wait_seconds || 30 }}
+          echo "Waiting $INITIAL_WAIT seconds for ECS service to start..."
+          echo "This gives time for:"
+          echo "  - ECS task to be scheduled and started"
+          echo "  - Container to pull image and initialize"
+          echo "  - Health checks to begin"
+          sleep $INITIAL_WAIT
+        shell: bash
+
       - name: Perform Connection Checks
         id: connection-check
         run: |
-          MAX_ATTEMPTS=${{ inputs.max_attempts || 6 }}
-          RETRY_DELAY=${{ inputs.retry_delay_seconds || 10 }}
-          CONNECT_TIMEOUT=${{ inputs.connect_timeout_seconds || 5 }}
+          MAX_ATTEMPTS=${{ inputs.max_attempts || 12 }}
+          BASE_RETRY_DELAY=${{ inputs.retry_delay_seconds || 15 }}
+          CONNECT_TIMEOUT=${{ inputs.connect_timeout_seconds || 10 }}
+          
+          # 지수 백오프 함수
+          calculate_delay() {
+            local attempt=$1
+            # 지수 백오프: delay = base * (1.5 ^ (attempt - 1)), 최대 120초
+            local delay=$(awk "BEGIN {print int($BASE_RETRY_DELAY * (1.5 ^ ($attempt - 1)))}")
+            if [ $delay -gt 120 ]; then
+              delay=120
+            fi
+            echo $delay
+          }
           
           # --- 1. HTTPS Health Endpoint 확인 ---
-          echo "Checking HTTPS endpoint: https://${{ inputs.server_address }}:${HTTP_PORT}/health"
+          echo "=== Checking HTTPS endpoint: https://${{ inputs.server_address }}:${HTTP_PORT}/health ==="
           
           attempt=1
+          total_wait_time=0
           while [ $attempt -le $MAX_ATTEMPTS ]; do
-            echo "Attempt $attempt/$MAX_ATTEMPTS..."
+            echo ""
+            echo "Health Check Attempt $attempt/$MAX_ATTEMPTS (Total wait time: ${total_wait_time}s)"
+            echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
             
-            # 프로덕션 환경에서는 유효한 인증서를 사용하므로 -k 옵션 제거
-            if curl -sS --fail --connect-timeout $CONNECT_TIMEOUT "https://${{ inputs.server_address }}:${HTTP_PORT}/health"; then
-              echo "Health check successful on port ${HTTP_PORT}!"
+            # curl의 verbose 모드로 더 자세한 정보 출력
+            echo "Running: curl -sSv --fail --connect-timeout $CONNECT_TIMEOUT https://${{ inputs.server_address }}:${HTTP_PORT}/health"
+            if curl -sSv --fail --connect-timeout $CONNECT_TIMEOUT "https://${{ inputs.server_address }}:${HTTP_PORT}/health" 2>&1; then
+              echo "✅ Health check successful on port ${HTTP_PORT}!"
               break
+            else
+              curl_exit_code=$?
+              echo "❌ Health check failed with exit code: $curl_exit_code"
+              
+              # curl 오류 코드 해석
+              case $curl_exit_code in
+                7) echo "   → Connection refused (server might not be ready yet)" ;;
+                28) echo "   → Connection timeout (server might be overloaded)" ;;
+                22) echo "   → HTTP error response (check server logs)" ;;
+                60) echo "   → SSL certificate problem" ;;
+                *) echo "   → Unknown error (check curl documentation)" ;;
+              esac
             fi
             
             if [ $attempt -eq $MAX_ATTEMPTS ]; then
-              echo "Error: HTTPS Health check failed after $MAX_ATTEMPTS attempts."
+              echo ""
+              echo "❌ Error: HTTPS Health check failed after $MAX_ATTEMPTS attempts."
+              echo "Total time waited: ${total_wait_time} seconds"
+              echo "Consider checking:"
+              echo "  - ECS task logs in CloudWatch"
+              echo "  - Target group health in NLB"
+              echo "  - Security group rules"
               exit 1
             fi
             
-            echo "Health check failed, retrying in $RETRY_DELAY seconds..."
+            # 지수 백오프 계산
+            RETRY_DELAY=$(calculate_delay $attempt)
+            total_wait_time=$((total_wait_time + RETRY_DELAY))
+            
+            echo "⏳ Health check failed, retrying in $RETRY_DELAY seconds..."
+            echo "   (Using exponential backoff strategy)"
             sleep $RETRY_DELAY
             attempt=$((attempt+1))
           done
 
           # --- 2. WSS (TLS) 연결 확인 (openssl 사용) ---
-          echo "Checking WSS (TLS) endpoint: ${{ inputs.server_address }}:${WEBSOCKET_PORT}"
+          echo ""
+          echo "=== Checking WSS (TLS) endpoint: ${{ inputs.server_address }}:${WEBSOCKET_PORT} ==="
           
           attempt=1
+          total_wait_time=0
           while [ $attempt -le $MAX_ATTEMPTS ]; do
-            echo "Attempt $attempt/$MAX_ATTEMPTS..."
+            echo ""
+            echo "WSS Check Attempt $attempt/$MAX_ATTEMPTS (Total wait time: ${total_wait_time}s)"
+            echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
             
             # openssl s_client를 사용하여 TLS 핸드셰이크가 성공하는지 확인
-            # 핸드셰이크 후 즉시 종료하기 위해 </dev/null 사용
-            if openssl s_client -connect ${{ inputs.server_address }}:${WEBSOCKET_PORT} < /dev/null 2>/dev/null; then
-              echo "WSS (TLS) handshake successful on port ${WEBSOCKET_PORT}!"
+            echo "Running: openssl s_client -connect ${{ inputs.server_address }}:${WEBSOCKET_PORT}"
+            if timeout $CONNECT_TIMEOUT openssl s_client -connect ${{ inputs.server_address }}:${WEBSOCKET_PORT} < /dev/null 2>&1 | grep -q "SSL handshake has read"; then
+              echo "✅ WSS (TLS) handshake successful on port ${WEBSOCKET_PORT}!"
               break
+            else
+              echo "❌ WSS (TLS) connection test failed"
             fi
             
             if [ $attempt -eq $MAX_ATTEMPTS ]; then
-              echo "Error: WSS (TLS) connection test failed after $MAX_ATTEMPTS attempts."
+              echo ""
+              echo "❌ Error: WSS (TLS) connection test failed after $MAX_ATTEMPTS attempts."
+              echo "Total time waited: ${total_wait_time} seconds"
               exit 1
             fi
             
-            echo "WSS (TLS) connection test failed, retrying in $RETRY_DELAY seconds..."
+            # 지수 백오프 계산
+            RETRY_DELAY=$(calculate_delay $attempt)
+            total_wait_time=$((total_wait_time + RETRY_DELAY))
+            
+            echo "⏳ WSS (TLS) connection test failed, retrying in $RETRY_DELAY seconds..."
             sleep $RETRY_DELAY
             attempt=$((attempt+1))
           done
           
-          echo "All connection checks passed successfully!"
+          echo ""
+          echo "🎉 All connection checks passed successfully!"
           exit 0
         shell: bash
         # continue-on-error 제거하여 실패 시 step이 실패로 표시되도록 함
@@ -148,10 +216,10 @@ jobs:
           CONNECTION_RESULT="${{ steps.connection-check.outcome }}"
           
           if [ "$CONNECTION_RESULT" = "success" ]; then
-            echo "All connection checks passed successfully!"
+            echo "✅ All connection checks passed successfully!"
             echo "final_status=success" >> $GITHUB_OUTPUT
           else
-            echo "Connection checks failed!"
+            echo "❌ Connection checks failed!"
             echo "Connection check result: $CONNECTION_RESULT"
             echo "final_status=fail" >> $GITHUB_OUTPUT
             # 명시적으로 실패 반환

@@ -13,6 +13,7 @@
 #include <chrono>
 #include <mutex>
 #include <thread>
+#include <cmath> // std::round 함수 사용을 위해 추가
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -75,7 +76,8 @@ http::response<http::string_body> PlacesApiHandler::handleNearbySearch(
 
         // 필요한 파라미터 추가 (fieldMask는 searchNearby에서 지원하지 않음)
         request_data["includedPrimaryTypes"] = json::array{"restaurant", "cafe", "bakery", "bar"};
-        request_data["maxResultCount"] = 20;
+        request_data["maxResultCount"] = 5; // 클라이언트가 5개만 표시하므로 최적화
+        request_data["rankPreference"] = "DISTANCE"; // 거리순 정렬 추가
         
         // Google Places API 호출 (POST 사용)
         json::value response_data = this->requestGooglePlacesApi(
@@ -100,13 +102,14 @@ http::response<http::string_body> PlacesApiHandler::handleNearbySearch(
         res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
         res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
         res.keep_alive(req.keep_alive());
+        // JSON을 최소화하여 직렬화 (공백 제거)
         res.body() = json::serialize(response_data);
         res.prepare_payload();
         return res;
     }
     catch (const std::exception& e) {
-        // 오류 로깅 시 요청 본문 출력 (string_body 사용)
-        std::cerr << "Error parsing request body: " << req.body() << std::endl; // 오류 로깅 추가
+        // 오류 로깅 최적화 (전체 본문 대신 길이만 출력)
+        std::cerr << "Error parsing request body (length: " << req.body().length() << "): " << e.what() << std::endl;
         return this->createErrorResponse(http::status::bad_request, 
                                   std::string("Error processing request: ") + e.what());
     }
@@ -161,14 +164,14 @@ http::response<http::string_body> PlacesApiHandler::handleTextSearch(
             center["latitude"] = latitude;
             center["longitude"] = longitude;
             circle["center"] = center;
-            circle["radius"] = radius * 2; // 반경을 2배로 늘려서 더 넓은 범위 검색
+            circle["radius"] = radius; // 반경을 그대로 사용 (2배 제거)
             location_bias["circle"] = circle;
             request_data["locationBias"] = location_bias;
         }
         // 랜드마크 검색의 경우 위치 제한 없이 전국 검색
 
         // 필요한 파라미터 추가
-        request_data["maxResultCount"] = 20;
+        request_data["maxResultCount"] = 5; // 클라이언트가 5개만 표시하므로 최적화
         
         // 한국어 검색 결과 우선
         request_data["languageCode"] = "ko";
@@ -196,13 +199,14 @@ http::response<http::string_body> PlacesApiHandler::handleTextSearch(
         res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
         res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
         res.keep_alive(req.keep_alive());
+        // JSON을 최소화하여 직렬화 (공백 제거)
         res.body() = json::serialize(response_data);
         res.prepare_payload();
         return res;
     }
     catch (const std::exception& e) {
-        // 오류 로깅 시 요청 본문 출력 (string_body 사용)
-        std::cerr << "Error parsing request body: " << req.body() << std::endl; // 오류 로깅 추가
+        // 오류 로깅 최적화 (전체 본문 대신 길이만 출력)
+        std::cerr << "Error parsing request body (length: " << req.body().length() << "): " << e.what() << std::endl;
         return this->createErrorResponse(http::status::bad_request, 
                                   std::string("Error processing request: ") + e.what());
     }
@@ -267,12 +271,12 @@ json::value PlacesApiHandler::requestGooglePlacesApi(
     const json::value& requestData) {
     
     try {
-        std::cout << "Google Places API 요청 (" << method << "): " << endpoint << std::endl;
-        // POST 요청일 때만 요청 데이터 로깅
-        if (method == http::verb::post) {
-            std::cout << "요청 데이터: " << json::serialize(requestData) << std::endl;
-        }
-        std::cout << "API 키 길이: " << m_apiKey.length() << std::endl;
+        // 디버그 로그 주석 처리 (I/O 부하 감소)
+        // std::cout << "Google Places API 요청 (" << method << "): " << endpoint << std::endl;
+        // if (method == http::verb::post) {
+        //     std::cout << "요청 데이터: " << json::serialize(requestData) << std::endl;
+        // }
+        // std::cout << "API 키 길이: " << m_apiKey.length() << std::endl;
         
         // SSL 컨텍스트 및 IO 컨텍스트 설정
         net::io_context ioc;
@@ -346,7 +350,7 @@ json::value PlacesApiHandler::requestGooglePlacesApi(
             // handlePlaceDetails에서 이미 fields 파라미터로 지정하므로 X-Goog-FieldMask 헤더는 설정하지 않음
             // req.set("X-Goog-FieldMask", "id,displayName,formattedAddress,location");
         } else { ///< Nearby Search, Text Search (POST)
-            req.set("X-Goog-FieldMask", "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.primaryTypeDisplayName");
+            req.set("X-Goog-FieldMask", "places.id,places.displayName,places.formattedAddress,places.location");
         }
         
         // POST 요청일 때만 본문 설정
@@ -370,11 +374,13 @@ json::value PlacesApiHandler::requestGooglePlacesApi(
                       << ec.message() << " (Code: " << ec.value() << ")" << std::endl;
             // 기존 예외 처리는 유지 (필요시)
             // throw beast::system_error{ec, "Read failed"};
-        } else if (ec == http::error::end_of_stream) {
-             std::cerr << "[PlacesApiHandler::requestGooglePlacesApi] Normal EOF after http::read." << std::endl;
-        } else {
-             std::cerr << "[PlacesApiHandler::requestGooglePlacesApi] No error after http::read." << std::endl;
         }
+        // 정상적인 EOF는 로그하지 않음 (I/O 부하 감소)
+        // else if (ec == http::error::end_of_stream) {
+        //      std::cerr << "[PlacesApiHandler::requestGooglePlacesApi] Normal EOF after http::read." << std::endl;
+        // } else {
+        //      std::cerr << "[PlacesApiHandler::requestGooglePlacesApi] No error after http::read." << std::endl;
+        // }
 
         // 연결 종료
         // beast::error_code ec; // ec 변수는 이미 선언됨
@@ -382,11 +388,13 @@ json::value PlacesApiHandler::requestGooglePlacesApi(
 
         // stream.shutdown 이후 오류 코드 로깅 추가
         if(ec == net::error::eof) {
-            std::cerr << "[PlacesApiHandler::requestGooglePlacesApi] Normal EOF during shutdown." << std::endl;
+            // 정상적인 EOF는 로그하지 않음 (I/O 부하 감소)
+            // std::cerr << "[PlacesApiHandler::requestGooglePlacesApi] Normal EOF during shutdown." << std::endl;
             ec = {}; ///< Clear the error code for EOF
         } else if (ec == ssl::error::stream_truncated) {
-            std::cerr << "[PlacesApiHandler::requestGooglePlacesApi] Stream truncated during shutdown (Code: " 
-                      << ec.value() << "). Ignored." << std::endl;
+            // 정상적인 stream_truncated도 로그하지 않음 (I/O 부하 감소)
+            // std::cerr << "[PlacesApiHandler::requestGooglePlacesApi] Stream truncated during shutdown (Code: " 
+            //           << ec.value() << "). Ignored." << std::endl;
             ec = {}; ///< stream_truncated 오류는 일단 무시하고 로깅만
         } else if (ec) {
              std::cerr << "[PlacesApiHandler::requestGooglePlacesApi] Error during stream shutdown: " 
@@ -401,7 +409,8 @@ json::value PlacesApiHandler::requestGooglePlacesApi(
              response_json = json::parse(res.body());
         } catch (const std::exception& parse_error) {
             std::cerr << "[PlacesApiHandler::requestGooglePlacesApi] Failed to parse Google API response as JSON: " 
-                      << parse_error.what() << "\nResponse body: " << res.body() << std::endl;
+                      << parse_error.what() << "\nResponse body (first 200 chars): " 
+                      << (res.body().length() > 200 ? res.body().substr(0, 200) + "..." : res.body()) << std::endl;
             // JSON 파싱 실패 시, 원본 상태 코드와 본문을 오류로 반환
             json::object error_obj;
             error_obj["__error_status_code"] = res.result_int(); ///< 원본 상태 코드 저장
@@ -409,8 +418,9 @@ json::value PlacesApiHandler::requestGooglePlacesApi(
             return error_obj;
         }
         
-        std::cout << "Google API 응답 코드: " << res.result_int() << std::endl;
-        std::cout << "응답 내용 일부: " << (res.body().length() > 100 ? res.body().substr(0, 100) + "..." : res.body()) << std::endl;
+        // 정상 응답 로그 주석 처리 (I/O 부하 감소)
+        // std::cout << "Google API 응답 코드: " << res.result_int() << std::endl;
+        // std::cout << "응답 내용 일부: " << (res.body().length() > 100 ? res.body().substr(0, 100) + "..." : res.body()) << std::endl;
         
         // ===== Google API 오류 상태 코드 확인 =====
         ///< @brief Google API 오류 응답을 감지하여 클라이언트에 전달하기 위해 특수 필드에 저장한다.
@@ -439,15 +449,15 @@ json::value PlacesApiHandler::requestGooglePlacesApi(
                  
                  // ID 처리 (필수 필드)
                  if (place.as_object().contains("id")) {
-                     transformed_place["placeId"] = place.at("id").as_string();
+                     transformed_place["id"] = place.at("id").as_string();
                  } else if (place.as_object().contains("name")) {
                      // name 필드에서 ID 추출 (places/ChIJ... 형식)
                      std::string name_str = place.at("name").as_string().c_str();
                      auto pos = name_str.find("places/");
                      if (pos != std::string::npos) {
-                         transformed_place["placeId"] = name_str.substr(pos + 7);
+                         transformed_place["id"] = name_str.substr(pos + 7);
                      } else {
-                         transformed_place["placeId"] = name_str;
+                         transformed_place["id"] = name_str;
                      }
                  }
                  
@@ -461,24 +471,29 @@ json::value PlacesApiHandler::requestGooglePlacesApi(
                  
                  // 주소 처리
                  if (place.as_object().contains("formattedAddress")) {
-                     transformed_place["vicinity"] = place.at("formattedAddress").as_string();
+                     transformed_place["addr"] = place.at("formattedAddress").as_string();
                  } else if (place.as_object().contains("vicinity")) {
-                     transformed_place["vicinity"] = place.at("vicinity").as_string();
+                     transformed_place["addr"] = place.at("vicinity").as_string();
                  } else {
-                     transformed_place["vicinity"] = "주소 정보 없음";
+                     transformed_place["addr"] = "주소 정보 없음";
                  }
                  
-                 // 위치 정보 처리
+                 // 위치 정보 처리 (좌표 정밀도를 소수점 6자리로 제한)
                  json::object location;
                  if (place.as_object().contains("location")) {
-                     location["latitude"] = place.at("location").at("latitude").as_double();
-                     location["longitude"] = place.at("location").at("longitude").as_double();
+                     double lat = place.at("location").at("latitude").as_double();
+                     double lng = place.at("location").at("longitude").as_double();
+                     // 소수점 6자리로 제한 (약 0.1m 정밀도)
+                     lat = std::round(lat * 1000000) / 1000000.0;
+                     lng = std::round(lng * 1000000) / 1000000.0;
+                     location["lat"] = lat;
+                     location["lng"] = lng;
                  } else {
                      // 기본 위치 (강남역)
-                     location["latitude"] = 37.4979;
-                     location["longitude"] = 127.0276;
+                     location["lat"] = 37.4979;
+                     location["lng"] = 127.0276;
                  }
-                 transformed_place["location"] = location;
+                 transformed_place["loc"] = location;
                  
                  transformed_places.push_back(transformed_place);
              }
@@ -522,7 +537,8 @@ http::response<http::string_body> PlacesApiHandler::handlePlacePhoto(
     const std::string& photo_reference) {
     
     try {
-        std::cout << "handlePlacePhoto 호출됨, photo_reference: " << photo_reference << std::endl;
+        // 디버그 로그 주석 처리 (I/O 부하 감소)
+        // std::cout << "handlePlacePhoto 호출됨, photo_reference: " << photo_reference << std::endl;
         
         // Google Places API v1 형식의 photo reference 처리
         // 형식: places/ChIJXyQvMaRtZjURAln5cV-8xL4/photos/AXQCQNTelAdECPdcBwjlBRkJ0hUmnWUg...
@@ -533,7 +549,8 @@ http::response<http::string_body> PlacesApiHandler::handlePlacePhoto(
         if (photos_pos != std::string::npos) {
             // "/photos/" 이후의 부분만 추출
             actual_photo_reference = photo_reference.substr(photos_pos + 8);
-            std::cout << "추출된 photo reference: " << actual_photo_reference << std::endl;
+            // 디버그 로그 주석 처리 (I/O 부하 감소)
+            // std::cout << "추출된 photo reference: " << actual_photo_reference << std::endl;
         }
         
         // Google Places Photo API URL 구성
@@ -580,15 +597,18 @@ http::response<http::string_body> PlacesApiHandler::handlePlacePhoto(
             ec = {}; // 정상적인 종료로 간주
         }
         
-        std::cout << "Google Photo API 응답 코드: " << res.result_int() << std::endl;
-        
+        // 정상 응답 로그 주석 처리 (I/O 부하 감소)
+        // std::cout << "Google API 응답 코드: " << res.result_int() << std::endl;
+        // std::cout << "응답 내용 일부: " << (res.body().length() > 100 ? res.body().substr(0, 100) + "..." : res.body()) << std::endl;
+
         // 302 리다이렉트 처리
         if (res.result_int() == 302) {
             // Location 헤더에서 리다이렉트 URL 추출
             auto location = res.find(http::field::location);
             if (location != res.end()) {
                 std::string redirect_url = std::string(location->value());
-                std::cout << "리다이렉트 URL: " << redirect_url << std::endl;
+                // 디버그 로그 주석 처리 (I/O 부하 감소)
+                // std::cout << "리다이렉트 URL: " << redirect_url << std::endl;
                 
                 // 리다이렉트 URL 파싱
                 // URL 형식: https://lh3.googleusercontent.com/...

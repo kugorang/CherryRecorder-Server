@@ -4,8 +4,8 @@
   "taskRoleArn": "$EXECUTION_ROLE_ARN",
   "networkMode": "awsvpc",
   "requiresCompatibilities": [ "EC2" ],
-  "cpu": "768",
-  "memory": "768",
+  "cpu": "450",
+  "memory": "700",
   "pidMode": "host",
   "ipcMode": "host",
   "runtimePlatform": {
@@ -16,9 +16,9 @@
     {
       "name": "$CONTAINER_NAME",
       "image": "placeholder",
-      "cpu": 768,
-      "memory": 768,
-      "memoryReservation": 512,
+      "cpu": 450,
+      "memory": 700,
+      "memoryReservation": 450,
       "essential": true,
       "privileged": true,
       "linuxParameters": {
@@ -30,28 +30,28 @@
           ]
         },
         "initProcessEnabled": true,
-        "sharedMemorySize": 32,
+        "sharedMemorySize": 16,
         "tmpfs": [
           {
             "containerPath": "/tmp",
-            "size": 64
+            "size": 32
           },
           {
             "containerPath": "/dev/shm",
-            "size": 32
+            "size": 16
           }
         ]
       },
       "ulimits": [
         {
           "name": "nofile",
-          "softLimit": 4096,
-          "hardLimit": 4096
+          "softLimit": 2048,
+          "hardLimit": 2048
         },
         {
           "name": "nproc",
-          "softLimit": 1024,
-          "hardLimit": 1024
+          "softLimit": 512,
+          "hardLimit": 512
         }
       ],
       "portMappings": [

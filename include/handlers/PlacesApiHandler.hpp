@@ -80,12 +80,10 @@ private:
         std::chrono::steady_clock::time_point timestamp;
     };
     
-    // 캐시 저장소와 뮤텍스
-    mutable std::mutex m_cacheMutex;
+    // 캐시 저장소 (키: 요청 파라미터의 해시, 값: 캐시된 응답)
     std::unordered_map<std::string, CacheEntry> m_cache;
-    static constexpr std::chrono::minutes CACHE_DURATION{5}; // 5분 캐시
-
-
+    mutable std::mutex m_cacheMutex;
+    static constexpr auto CACHE_DURATION = std::chrono::minutes(5); // 캐시 유효 시간
 
     /**
      * @brief Google Places API 요청 실행
