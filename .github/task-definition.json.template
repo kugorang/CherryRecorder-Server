@@ -14,9 +14,9 @@
     {
       "name": "$CONTAINER_NAME",
       "image": "placeholder",
-      "cpu": 950,
-      "memory": 900,
-      "memoryReservation": 700,
+      "cpu": 300,
+      "memory": 300,
+      "memoryReservation": 256,
       "essential": true,
       "privileged": true,
       "linuxParameters": {
@@ -28,15 +28,15 @@
           ]
         },
         "initProcessEnabled": true,
-        "sharedMemorySize": 256,
+        "sharedMemorySize": 64,
         "tmpfs": [
           {
             "containerPath": "/tmp",
-            "size": 512
+            "size": 128
           },
           {
             "containerPath": "/dev/shm",
-            "size": 256
+            "size": 64
           }
         ]
       },
@@ -77,6 +77,10 @@
         {
           "name": "WS_PORT",
           "value": "33334"
+        },
+        {
+          "name": "USE_SSL",
+          "value": "false"
         },
         {
           "name": "GOOGLE_MAPS_API_KEY",
