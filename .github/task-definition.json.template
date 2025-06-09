@@ -40,20 +40,6 @@
             "containerPath": "/dev/shm",
             "size": 32
           }
-        ],
-        "sysctls": [
-          {
-            "name": "net.ipv4.tcp_tw_reuse",
-            "value": "1"
-          },
-          {
-            "name": "net.core.somaxconn",
-            "value": "128"
-          },
-          {
-            "name": "net.ipv4.tcp_max_syn_backlog",
-            "value": "128"
-          }
         ]
       },
       "ulimits": [
