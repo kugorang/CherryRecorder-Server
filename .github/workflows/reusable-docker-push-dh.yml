@@ -64,11 +64,12 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }} # GITHUB_TOKEN 사용
 
-      # 3. skopeo 설치 (Docker Hub 이미지 다이제스트 검사용)
+      # 3. skopeo와 jq 설치 (Docker Hub 이미지 다이제스트 검사용)
       # skopeo: Docker Hub 등 외부 레지스트리의 이미지 정보를 Docker 클라이언트 없이 조회 가능
-      - name: Install skopeo
+      # jq: JSON 파싱을 위해 필요 (멀티 아키텍처 manifest 처리)
+      - name: Install skopeo and jq
         run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends skopeo && sudo rm -rf /var/lib/apt/lists/*
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends skopeo jq && sudo rm -rf /var/lib/apt/lists/*
         shell: bash
 
       # 4. Docker Hub의 :latest 태그 매니페스트 다이제스트 조회 (수정된 로직)
@@ -87,7 +88,9 @@ jobs:
             LATEST_DIGEST="" # 초기화
 
             # skopeo inspect로 :latest 이미지의 다이제스트 조회 시도
-            LATEST_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://$DH_IMAGE_LATEST || echo "")
+            # 멀티 아키텍처 이미지의 경우 manifest list의 digest를 가져온다
+            LATEST_DIGEST=$(skopeo inspect --raw docker://$DH_IMAGE_LATEST 2>/dev/null | jq -r '.digest // empty' || \
+                           skopeo inspect --format '{{.Digest}}' docker://$DH_IMAGE_LATEST 2>/dev/null || echo "")
 
             if [ -n "$LATEST_DIGEST" ]; then
               echo "Current :latest manifest digest in Docker Hub: $LATEST_DIGEST"

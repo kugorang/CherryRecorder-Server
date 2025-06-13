@@ -114,10 +114,10 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }} # GITHUB_TOKEN 사용
 
-      # 5. skopeo 설치 (ECR 이미지 다이제스트 검사용)
-      - name: Install skopeo
+      # 5. skopeo와 jq 설치 (ECR 이미지 다이제스트 검사용)
+      - name: Install skopeo and jq
         run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends skopeo && sudo rm -rf /var/lib/apt/lists/*
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends skopeo jq && sudo rm -rf /var/lib/apt/lists/*
         shell: bash
 
       # 6. 다이제스트 비교 (수정된 로직)
@@ -130,7 +130,9 @@ jobs:
           echo "Checking manifest digest for ECR image: $ECR_IMAGE_LATEST"
 
           # skopeo inspect 실행 (오류 시 빈 문자열 반환)
-          LATEST_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://$ECR_IMAGE_LATEST || echo "") # 오류 발생 시 빈 문자열 반환은 유지하되, stderr 출력 확인
+          # 멀티 아키텍처 이미지의 경우 manifest list의 digest를 가져온다
+          LATEST_DIGEST=$(skopeo inspect --raw docker://$ECR_IMAGE_LATEST 2>/dev/null | jq -r '.digest // empty' || \
+                         skopeo inspect --format '{{.Digest}}' docker://$ECR_IMAGE_LATEST 2>/dev/null || echo "")
 
           if [ -n "$LATEST_DIGEST" ]; then
             echo "Current ECR :latest manifest digest: $LATEST_DIGEST"

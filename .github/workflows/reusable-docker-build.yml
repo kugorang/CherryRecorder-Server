@@ -120,10 +120,21 @@ jobs:
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
         
       - name: Set up Docker Buildx
         id: buildx # ID는 그대로 유지하거나 변경해도 무방
         uses: docker/setup-buildx-action@v3
+        with:
+          # 더 큰 빌드 캐시 사용
+          driver-opts: |
+            image=moby/buildkit:latest
+            network=host
+          buildkitd-flags: --debug
+          config-inline: |
+            [worker.oci]
+              max-parallelism = 2
 
       # vcpkg 바이너리 캐시 복원
       - name: Cache vcpkg binaries
@@ -205,7 +216,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64  # 멀티 아키텍처 지원 추가
           # GHCR에 푸시할 태그 지정 (SHA 태그)
           tags: ${{ steps.set-names.outputs.ghcr_image_sha }}
           push: true # 항상 GHCR에는 푸시 (캐싱 및 후속 작업 기반)
