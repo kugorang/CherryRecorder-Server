@@ -9,7 +9,6 @@
   "pidMode": "host",
   "ipcMode": "host",
   "runtimePlatform": {
-    "cpuArchitecture": "X86_64",
     "operatingSystemFamily": "LINUX"
   },
   "containerDefinitions": [
@@ -58,12 +57,14 @@
         {
           "containerPort": 8080,
           "protocol": "tcp",
-          "name": "http"
+          "name": "http",
+          "appProtocol": "http"
         },
         {
           "containerPort": 33334,
           "protocol": "tcp",
-          "name": "websocket"
+          "name": "websocket",
+          "appProtocol": "http"
         }
       ],
       "environment": [
@@ -78,6 +79,10 @@
         {
           "name": "USE_SSL",
           "value": "false"
+        },
+        {
+          "name": "BEHIND_PROXY",
+          "value": "true"
         },
         {
           "name": "HTTP_THREADS",
@@ -109,10 +114,10 @@
           "CMD-SHELL",
           "curl -f http://localhost:8080/health || exit 1"
         ],
-        "interval": 120,
-        "timeout": 10,
+        "interval": 30,
+        "timeout": 5,
         "retries": 3,
-        "startPeriod": 180
+        "startPeriod": 60
       }
     }
   ]

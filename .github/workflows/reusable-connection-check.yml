@@ -14,12 +14,12 @@ on:
         type: string
         default: "8080"
       http_port:
-        description: 'HTTP 서버 포트 번호'
+        description: 'NLB HTTPS 리스너 포트 번호'
         required: false
         type: string
         default: "58080"
       websocket_port:
-        description: 'WebSocket Chat 서버 포트 번호'
+        description: 'NLB WSS 리스너 포트 번호'
         required: false
         type: string
         default: "33335"
@@ -116,7 +116,9 @@ jobs:
           }
           
           # --- 1. HTTPS Health Endpoint 확인 ---
-          echo "=== Checking HTTPS endpoint: https://${{ inputs.server_address }}:${HTTP_PORT}/health ==="
+          # NLB를 통한 HTTPS 연결
+          HEALTH_URL="https://${{ inputs.server_address }}:${HTTP_PORT}/health"
+          echo "=== Checking HTTPS endpoint: ${HEALTH_URL} ==="
           
           attempt=1
           total_wait_time=0
@@ -126,8 +128,8 @@ jobs:
             echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
             
             # curl의 verbose 모드로 더 자세한 정보 출력
-            echo "Running: curl -sSv --fail --connect-timeout $CONNECT_TIMEOUT https://${{ inputs.server_address }}:${HTTP_PORT}/health"
-            if curl -sSv --fail --connect-timeout $CONNECT_TIMEOUT "https://${{ inputs.server_address }}:${HTTP_PORT}/health" 2>&1; then
+            echo "Running: curl -sSv --fail --connect-timeout $CONNECT_TIMEOUT ${HEALTH_URL}"
+            if curl -sSv --fail --connect-timeout $CONNECT_TIMEOUT "${HEALTH_URL}" 2>&1; then
               echo "✅ Health check successful on port ${HTTP_PORT}!"
               break
             else
@@ -165,9 +167,11 @@ jobs:
             attempt=$((attempt+1))
           done
 
-          # --- 2. WSS (TLS) 연결 확인 (openssl 사용) ---
+          # --- 2. WSS (TLS) 연결 확인 (NLB를 통한 WSS) ---
           echo ""
-          echo "=== Checking WSS (TLS) endpoint: ${{ inputs.server_address }}:${WEBSOCKET_PORT} ==="
+          # WebSocket은 독립적인 포트 사용
+          WSS_ENDPOINT="${{ inputs.server_address }}:${WEBSOCKET_PORT}"
+          echo "=== Checking WSS endpoint: wss://${WSS_ENDPOINT}/ws/chat ==="
           
           attempt=1
           total_wait_time=0
@@ -176,9 +180,11 @@ jobs:
             echo "WSS Check Attempt $attempt/$MAX_ATTEMPTS (Total wait time: ${total_wait_time}s)"
             echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
             
-            # openssl s_client를 사용하여 TLS 핸드셰이크가 성공하는지 확인
-            echo "Running: openssl s_client -connect ${{ inputs.server_address }}:${WEBSOCKET_PORT}"
-            if timeout $CONNECT_TIMEOUT openssl s_client -connect ${{ inputs.server_address }}:${WEBSOCKET_PORT} < /dev/null 2>&1 | grep -q "SSL handshake has read"; then
+            # WebSocket 연결을 시도 (curl로 WebSocket upgrade 테스트)
+            WS_TEST_CMD="curl -sSv --connect-timeout $CONNECT_TIMEOUT -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==' https://${WSS_ENDPOINT}/ws/chat"
+            
+            echo "Running: $WS_TEST_CMD"
+            if eval "$WS_TEST_CMD" 2>&1 | grep -qE "(101 Switching Protocols|HTTP/1.1 101|HTTP/2 101)"; then
               echo "✅ WSS (TLS) handshake successful on port ${WEBSOCKET_PORT}!"
               break
             else

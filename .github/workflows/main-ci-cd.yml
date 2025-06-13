@@ -252,8 +252,8 @@ jobs:
       server_address: ${{ vars.SERVER_ADDRESS }}
       health_check_port: ${{ vars.HEALTH_CHECK_PORT_VALUE }} # HTTP 포트
       # NLB 리스너 포트를 GitHub Variables에서 가져오기
-      http_port: ${{ vars.NLB_HTTP_PORT }}        # NLB HTTPS 리스너 포트
-      websocket_port: ${{ vars.NLB_WEBSOCKET_PORT }}   # NLB WSS 리스너 포트
+      http_port: ${{ vars.NLB_HTTP_PORT }}        # NLB HTTPS 리스너 포트 (58080)
+      websocket_port: ${{ vars.NLB_WEBSOCKET_PORT }}   # NLB WSS 리스너 포트 (33335)
       # 아래는 선택적 입력 (필요 시 vars에서 가져오거나 직접 값 지정)
       # max_attempts: '6'
       # retry_delay_seconds: '10'
