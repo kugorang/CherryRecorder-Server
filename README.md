@@ -9,6 +9,10 @@
 
 C++20과 Boost.Beast 프레임워크로 구현된 CherryRecorder의 고성능 백엔드 서버입니다. 위치 기반 서비스와 실시간 채팅 기능을 제공합니다.
 
+> **🚨 중요**: AWS ECS 배포 시 SSL/TLS 설정 문제가 있다면 [SSL 문제 해결 가이드](#4-ecs에서-httpswss-연결-실패-)를 참조하세요.
+> 
+> **💡 팁**: NLB에서 포트를 분리하는 이유가 궁금하다면 [NLB 포트 분리 가이드](NLB_PORT_SEPARATION_GUIDE.md)를 참조하세요.
+
 ## 📋 목차
 
 - [프로젝트 소개](#-프로젝트-소개)
@@ -56,7 +60,7 @@ graph TD
     end
 
     subgraph "AWS Cloud"
-        NLB[Network Load Balancer<br/>TLS:58080→8080<br/>TCP:33335]
+        NLB[Network Load Balancer<br/>TLS:58080→8080<br/>TLS:33335→33334]
         subgraph "Amazon ECS (EC2 Mode)"
             ECS[ECS Service<br/>t2.micro]
             T[Task: CherryRecorder-Server<br/>CPU:768 MEM:768MB]
@@ -68,7 +72,7 @@ graph TD
     end
 
     U -- HTTPS(58080)/WSS(33335) --> NLB
-    NLB -- HTTP(8080)/WS(33335) --> T
+    NLB -- HTTP(8080)/WS(33334) --> T
     ECS -- Pulls Image --> ECR
     T -- API Call --> G
 ```
@@ -396,6 +400,16 @@ cd build && ctest
 ### 3. Google Places API 연결 실패
 -   **문제**: `Cannot assign requested address [99]`
 -   **해결**: 재시도 로직 추가 (최대 3회, 지수 백오프)
+
+### 4. ECS에서 HTTPS/WSS 연결 실패 🔐
+-   **문제**: HTTPS는 작동하지 않고, WSS는 간헐적으로만 작동
+-   **원인**: NLB SSL termination 설정과 컨테이너 설정 불일치
+-   **해결**: 
+    - NLB에서 SSL termination 수행 (443 → 8080/33334)
+    - 컨테이너는 평문 HTTP/WS만 제공
+    - 자세한 설정은 [AWS_NLB_SSL_SETUP.md](AWS_NLB_SSL_SETUP.md) 참조
+    - GitHub Variables 설정은 [GITHUB_VARIABLES_SSL_GUIDE.md](GITHUB_VARIABLES_SSL_GUIDE.md) 참조
+    - 디버깅은 `debug-ecs-ssl.sh` 스크립트 사용
 
 ## 📄 라이선스
 
