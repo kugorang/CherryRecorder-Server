@@ -56,9 +56,9 @@ graph TD
     end
 
     subgraph "AWS Cloud"
-        NLB[Network Load Balancer<br/>TLS:58080→8080<br/>TCP:33335]
+        NLB[Network Load Balancer<br/>TLS:443→8080<br/>TCP:WS_PORT]
         subgraph "Amazon ECS (EC2 Mode)"
-            ECS[ECS Service<br/>t2.micro]
+            ECS[ECS Service<br/>EC2 Instance]
             T[Task: CherryRecorder-Server<br/>CPU:768 MEM:768MB]
         end
         ECR[Amazon ECR]
@@ -67,8 +67,8 @@ graph TD
         end
     end
 
-    U -- HTTPS(58080)/WSS(33335) --> NLB
-    NLB -- HTTP(8080)/WS(33335) --> T
+    U -- HTTPS(443)/WSS(WS_PORT) --> NLB
+    NLB -- HTTP(8080)/WS(WS_PORT) --> T
     ECS -- Pulls Image --> ECR
     T -- API Call --> G
 ```
@@ -98,7 +98,7 @@ graph TD
 
 ```bash
 # 이 저장소를 클론합니다.
-git clone --recursive https://github.com/kugorang/CherryRecorder-Server.git
+git clone --recursive https://github.com/your-username/CherryRecorder-Server.git
 cd CherryRecorder-Server
 
 # 환경 변수 파일을 생성하고 API 키를 입력합니다.
@@ -259,9 +259,9 @@ GET /placePhoto/{photo_reference}
 
 ## ⚡ 최적화
 
-### t2.micro 인스턴스 최적화 설정
+### 경량 인스턴스 최적화 설정
 
-서버는 AWS t2.micro (1 vCPU, 1GB RAM) 환경에서 안정적으로 동작하도록 최적화되어 있습니다:
+서버는 AWS 경량 인스턴스 (1 vCPU, 1GB RAM) 환경에서 안정적으로 동작하도록 최적화되어 있습니다:
 
 1. **리소스 할당**
    - CPU: 768 (0.75 vCPU) - OS/ECS용 0.25 vCPU 예약
@@ -328,7 +328,7 @@ doxygen Doxyfile
 open docs_output/html/index.html
 ```
 
-**온라인 문서:** [https://kugorang.github.io/CherryRecorder-Server/](https://kugorang.github.io/CherryRecorder-Server/)
+**온라인 문서:** [https://your-username.github.io/CherryRecorder-Server/](https://your-username.github.io/CherryRecorder-Server/)
 
 ### 문서 구조
 - **Classes:** 모든 클래스의 계층 구조 및 멤버 함수
@@ -370,11 +370,11 @@ cd build && ctest
 ### AWS ECS 배포 구성
 
 1. **Network Load Balancer (NLB)**
-   - TLS 리스너 (58080) → HTTP 타겟 (8080)
-   - TCP 리스너 (33335) → WS 타겟 (33335)
+   - TLS 리스너 (443) → HTTP 타겟 (8080)
+   - TCP 리스너 (WS_PORT) → WS 타겟 (WS_PORT)
 
 2. **ECS Task Definition**
-   - EC2 인스턴스 타입: t2.micro
+   - EC2 인스턴스 타입: 경량 인스턴스
    - 네트워크 모드: awsvpc
    - 헬스체크: `/health` 엔드포인트
 
@@ -389,7 +389,7 @@ cd build && ctest
 -   **문제**: Boost.Asio의 `epoll` 이벤트 메커니즘 오류
 -   **해결**: 환경 변수로 `poll` 백엔드 설정
 
-### 2. t2.micro 리소스 부족
+### 2. 경량 인스턴스 리소스 부족
 -   **문제**: 메모리/CPU 부족으로 헬스체크 실패
 -   **해결**: 리소스 할당 최적화 및 스레드 수 조정
 
@@ -413,6 +413,5 @@ cd build && ctest
 
 ## 📞 문의
 
--   **김현우 (Hyeonwoo Kim)** - Project Lead & Full-Stack Developer
--   **GitHub Issues**: [https://github.com/kugorang/CherryRecorder-Server/issues](https://github.com/kugorang/CherryRecorder-Server/issues)
--   **Email**: `ialskdji@gmail.com`
+-   **Project Lead** - Full-Stack Developer
+-   **GitHub Issues**: [https://github.com/your-username/CherryRecorder-Server/issues](https://github.com/your-username/CherryRecorder-Server/issues)
