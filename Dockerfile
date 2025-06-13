@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # --- STEP 1.5: 최신 CMake 설치 ---
 ARG CMAKE_VERSION=3.30.1
+ARG TARGETARCH
 RUN \
     # TARGETARCH가 없으면(로컬 빌드), 현재 아키텍처(uname -m)를 사용
     BUILD_ARCH=${TARGETARCH:-$(uname -m)} \
@@ -67,7 +68,9 @@ RUN git clone https://github.com/microsoft/vcpkg.git && \
 ARG VCPKG_MAX_CONCURRENCY=4
 ENV VCPKG_MAX_CONCURRENCY=${VCPKG_MAX_CONCURRENCY}
 ENV VCPKG_DISABLE_METRICS=1
-ENV VCPKG_DEFAULT_TRIPLET=x64-linux-ecs
+# 아키텍처에 따른 triplet 설정
+ARG TARGETARCH
+ENV VCPKG_DEFAULT_TRIPLET=${TARGETARCH:+${TARGETARCH}-linux-ecs}${TARGETARCH:-x64-linux-ecs}
 # 추가 최적화: 병렬 다운로드 증가, 빌드 타입 최적화
 ENV VCPKG_DOWNLOADS_CONCURRENCY=8
 ENV VCPKG_BUILD_TYPE=release
@@ -91,6 +94,7 @@ COPY vcpkg.json .
 COPY CMakeLists.txt .
 # 커스텀 triplet 파일 복사
 COPY x64-linux-ecs.cmake /opt/vcpkg/triplets/
+COPY arm64-linux-ecs.cmake /opt/vcpkg/triplets/
 
 # 더미 소스 파일 및 디렉토리 생성 (CMake 구성이 실패하지 않도록)
 # CMakeLists.txt에 명시된 모든 소스 파일 경로를 기반으로 빈 파일을 생성합니다.
@@ -122,6 +126,8 @@ RUN mkdir -p src/handlers && \
 
 # vcpkg 의존성을 설치합니다.
 # 이 단계는 시간이 오래 걸리지만, vcpkg.json이 변경되지 않는 한 캐시됩니다.
+# Architecture 감지 및 triplet 설정
+ARG TARGETARCH
 RUN --mount=type=cache,target=/root/.cache/vcpkg \
     --mount=type=cache,target=/opt/vcpkg/downloads \
     --mount=type=cache,target=/opt/vcpkg/buildtrees \
@@ -130,13 +136,15 @@ RUN --mount=type=cache,target=/root/.cache/vcpkg \
     --mount=type=cache,target=/app/build/vcpkg_installed \
     --mount=type=cache,target=/tmp/vcpkg \
     # 1. vcpkg로 의존성 명시적 설치 (ECS 호환 triplet 사용)
-    /opt/vcpkg/vcpkg install --triplet x64-linux-ecs --clean-after-build && \
+    TRIPLET=${TARGETARCH:+${TARGETARCH}-linux-ecs}${TARGETARCH:-x64-linux-ecs} && \
+    echo "Using triplet: $TRIPLET" && \
+    /opt/vcpkg/vcpkg install --triplet $TRIPLET --clean-after-build && \
     # 2. CMake 실행
     cmake -S . -B build \
       -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
-      -DVCPKG_TARGET_TRIPLET=x64-linux-ecs \
+      -DVCPKG_TARGET_TRIPLET=$TRIPLET \
       -DBUILD_TESTING=OFF \
       -DCMAKE_VERBOSE_MAKEFILE=ON && \
     # 설치된 패키지 정보 출력
@@ -154,7 +162,13 @@ COPY include/ include/
 # COPY key.pem ./key.pem
 
 # 이미 구성된 빌드 디렉터리를 사용하여 애플리케이션을 빌드합니다.
-RUN cmake --build build --target CherryRecorder-Server-App -j $(nproc)
+# ARM64에서는 메모리 제약을 고려하여 병렬성 조정
+ARG TARGETARCH
+RUN if [ "${TARGETARCH}" = "arm64" ]; then \
+        cmake --build build --target CherryRecorder-Server-App -j 2; \
+    else \
+        cmake --build build --target CherryRecorder-Server-App -j $(nproc); \
+    fi
 
 # --- STEP 5: 빌드된 실행 파일 의존성 확인 ---
 # ldd를 사용하여 실행 파일의 동적 라이브러리 의존성을 확인합니다 (디버깅용).

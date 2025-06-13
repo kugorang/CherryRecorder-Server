@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import time
+import platform
 
 # --- Configuration ---
 APP_IMAGE_TAG = "cherryrecorder-server:latest"
@@ -15,6 +16,17 @@ TEST_DOCKERFILE = "Dockerfile.test"
 TEST_DOCKERIGNORE = "Dockerfile.test.dockerignore"
 DEFAULT_DOCKERIGNORE = ".dockerignore"
 BACKUP_DOCKERIGNORE = ".dockerignore.original"
+
+# --- Architecture Detection ---
+def get_current_arch():
+    """Detect current system architecture"""
+    machine = platform.machine().lower()
+    if machine in ['x86_64', 'amd64']:
+        return 'amd64'
+    elif machine in ['aarch64', 'arm64']:
+        return 'arm64'
+    else:
+        return machine
 
 # --- Port Mapping (Host:Container) - Only for Application Mode ---
 HOST_PORT_HTTP = "8080"
@@ -142,7 +154,28 @@ def main():
         default="app",
         help="Target to build and run: 'app' (default) or 'test'."
     )
+    parser.add_argument(
+        "--platform",
+        choices=["amd64", "arm64", "both", "auto"],
+        default="auto",
+        help="Platform to build for: 'amd64', 'arm64', 'both' (multi-arch), or 'auto' (detect current)."
+    )
+    parser.add_argument(
+        "--push",
+        action="store_true",
+        help="Push multi-arch images to registry (requires --platform=both)"
+    )
     args = parser.parse_args()
+    
+    # Platform 설정
+    if args.platform == "auto":
+        args.platform = get_current_arch()
+        print(f"Auto-detected platform: {args.platform}")
+    
+    # Multi-arch push는 'both' platform에서만 가능
+    if args.push and args.platform != "both":
+        print("ERROR: --push requires --platform=both", file=sys.stderr)
+        sys.exit(1)
 
     # Docker BuildKit 활성화를 위한 환경 변수
     build_env = {"DOCKER_BUILDKIT": "1"}
@@ -155,7 +188,25 @@ def main():
             image_tag = TEST_IMAGE_TAG
             dockerfile = TEST_DOCKERFILE
             backup_made = prepare_dockerignore_for_test()
-            build_args = ["docker", "build", "-t", image_tag, "-f", dockerfile, "."]
+            # Platform 옵션 추가
+            platform_opts = []
+            if args.platform == "both":
+                platform_opts = ["--platform", "linux/amd64,linux/arm64"]
+            else:
+                platform_opts = ["--platform", f"linux/{args.platform}"]
+            
+            build_args = ["docker", "buildx", "build"] + platform_opts + ["-t", image_tag, "-f", dockerfile]
+            
+            # Multi-arch build는 push 없이는 로컬에 로드할 수 없음
+            if args.platform == "both":
+                if args.push:
+                    build_args.extend(["--push", "."])
+                else:
+                    print("WARNING: Multi-arch build without push will not load images locally")
+                    build_args.append(".")
+            else:
+                build_args.extend(["--load", "."])
+            
             run_args = ["docker", "run", "--rm", "-e", "GOOGLE_MAPS_API_KEY=dummy_key", image_tag]
         else: # app mode
             print("--- Running in APPLICATION mode ---")
@@ -168,7 +219,24 @@ def main():
             run_command(["docker", "kill", container_name], stderr=subprocess.DEVNULL, check=False) # Ignore errors if container doesn't exist
             run_command(["docker", "rm", container_name], stderr=subprocess.DEVNULL, check=False)    # Ignore errors if container doesn't exist
 
-            build_args = ["docker", "build", "-t", image_tag, "-f", dockerfile, "."]
+            # Platform 옵션 추가
+            platform_opts = []
+            if args.platform == "both":
+                platform_opts = ["--platform", "linux/amd64,linux/arm64"]
+            else:
+                platform_opts = ["--platform", f"linux/{args.platform}"]
+            
+            build_args = ["docker", "buildx", "build"] + platform_opts + ["-t", image_tag, "-f", dockerfile]
+            
+            # Multi-arch build는 push 없이는 로컬에 로드할 수 없음
+            if args.platform == "both":
+                if args.push:
+                    build_args.extend(["--push", "."])
+                else:
+                    print("WARNING: Multi-arch build without push will not load images locally")
+                    build_args.append(".")
+            else:
+                build_args.extend(["--load", "."])
 
             # Prepare run args for app
             run_args_list = ["docker", "run", "-d", "--name", container_name]
@@ -225,8 +293,17 @@ def main():
             run_args = run_args_list
 
 
+        # --- Setup Docker Buildx (for multi-arch) ---
+        if args.platform == "both" or args.platform == "arm64":
+            print("Setting up Docker Buildx for multi-architecture build...")
+            # Create and use buildx builder
+            builder_name = "cherryrecorder-builder"
+            run_command(["docker", "buildx", "create", "--name", builder_name, "--use"], check=False)
+            run_command(["docker", "buildx", "inspect", "--bootstrap"])
+        
         # --- Build Docker Image ---
         print("INFO: Docker BuildKit is enabled for improved caching performance.")
+        print(f"INFO: Building for platform(s): {args.platform}")
         print("INFO: First build may take 20-30 minutes to compile all dependencies.")
         print("INFO: Subsequent builds will be much faster due to caching.")
         
@@ -238,6 +315,12 @@ def main():
                 # 빌드 시에는 메모리 제한 제거 (빌드 실패 방지)
                 # "--memory", "900m",  
             ])
+            
+            # ARM64 빌드를 위한 추가 설정
+            if args.platform in ["arm64", "both"]:
+                build_args.extend([
+                    "--build-arg", "ENABLE_ARM64_OPTIMIZATIONS=1"
+                ])
         
         # 빌드 진행 상황을 표시하기 위해 --progress=plain 추가
         build_args.extend(["--progress=plain"])
@@ -246,9 +329,14 @@ def main():
             sys.exit(1) # Exit if build fails
 
         # --- Run Docker Container ---
-        if not run_command(run_args):
-             print(f"ERROR: Docker run failed or tests failed for target '{args.target}'!", file=sys.stderr)
-             sys.exit(1) # Exit if run/tests fail
+        # Multi-arch build without push는 실행할 수 없음
+        if args.platform == "both" and not args.push:
+            print("\nMulti-arch build completed (not loaded locally).")
+            print("To push images: re-run with --push flag")
+        else:
+            if not run_command(run_args):
+                 print(f"ERROR: Docker run failed or tests failed for target '{args.target}'!", file=sys.stderr)
+                 sys.exit(1) # Exit if run/tests fail
 
         # --- Post-run messages ---
         if args.target == "app":
