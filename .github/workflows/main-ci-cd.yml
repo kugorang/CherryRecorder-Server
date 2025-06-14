@@ -1,96 +1,27 @@
 # .github/workflows/main-ci-cd.yml
-# 워크플로우 이름: 주 실행 워크플로우임을 명시
-name: CI/CD - CherryRecorder Server Orchestrator
+name: CI/CD - CherryRecorder Server
 
 # =====================================================================
-# 필수 GitHub Secrets 및 Variables 요약 (main-ci-cd.yml)
+# 필수 GitHub Secrets 및 Variables 요약
 # =====================================================================
-# 이 워크플로우 및 여기서 호출하는 재사용 워크플로우들이 작동하려면,
-# GitHub 저장소의 [Settings] > [Secrets and variables] > [Actions] 메뉴에서
-# 아래 항목들을 'Secrets' 또는 'Variables'로 미리 생성해야 합니다.
+# --- Secrets (민감 정보) ---
+# DOCKERHUB_USERNAME: Docker Hub 로그인 사용자 이름
+# DOCKERHUB_TOKEN: Docker Hub Access Token
+# GOOGLE_MAPS_API_KEY: Google Maps API 키
 #
-# --- Secrets (민감 정보: 값은 로그에 노출되지 않음) ---
-# AWS_ROLE_TO_ASSUME: GitHub Actions 워크플로우가 AWS 리소스 접근 권한을 얻기 위해
-#                     사용할 OIDC 연동 IAM 역할의 ARN.
-#                     (reusable-docker-push-ecr, reusable-deploy-aws 에서 사용)
-# TASK_EXECUTION_ROLE_ARN: ECS Task가 ECR 이미지 풀링, CloudWatch 로그 전송 등
-#                          AWS 서비스에 접근할 때 사용하는 IAM 역할의 ARN.
-#                          (reusable-deploy-aws 워크플로우가 Task Definition 템플릿 렌더링 시 사용)
-# DOCKERHUB_USERNAME: Docker Hub 로그인 시 사용할 사용자 이름.
-#                     (reusable-docker-push-dh 에서 사용)
-# DOCKERHUB_TOKEN: Docker Hub 로그인 시 사용할 Access Token (일반 비밀번호 대신 사용 권장).
-#                  (reusable-docker-push-dh 에서 사용)
-# GOOGLE_MAPS_API_KEY: CTest 및 ECS 컨테이너에서 사용할 Google Maps API 키.
-#                      (reusable-build-test, reusable-deploy-aws 에서 사용)
-#
-# --- Variables (설정값: 값은 로그에 노출될 수 있음) ---
-# [AWS 기본 설정]
-# AWS_REGION:          배포 대상 AWS 리전 코드 (예: ap-northeast-2).
-#                      (여러 AWS 관련 job 에서 사용)
-# AWS_ACCOUNT_ID:      AWS 계정 ID. ECR 리포지토리 주소 등을 명시적으로 구성할 때 필요할 수 있음.
-#                      (reusable-docker-build 에서 사용될 수 있음)
-#
-# [ECR / Docker Hub 설정]
-# AWS_ECR_REPOSITORY:  ECR 리포지토리 이름 (예: cherryrecorder-server).
-#                      (reusable-docker-build, reusable-docker-push-ecr 에서 사용)
-# DOCKERHUB_REPO:      Docker Hub 리포지토리 이름 (사용자명 제외, 예: cherryrecorder-server).
-#                      Docker Hub 사용자명은 DOCKERHUB_USERNAME 시크릿에서 가져옴.
-#                      (reusable-docker-build, reusable-docker-push-dh 에서 사용)
-#
-# [ECS 배포 대상 정보]
-# ECS_CLUSTER_NAME:    배포 대상 ECS 클러스터 이름.
-#                      (reusable-deploy-aws 에서 사용)
-# ECS_SERVICE_NAME:    배포 대상 ECS 서비스 이름.
-#                      (reusable-deploy-aws 에서 사용)
-# ECS_TASK_DEF_FAMILY: 배포할 ECS Task Definition의 패밀리 이름.
-#                      (reusable-deploy-aws 워크플로우가 Task Definition 템플릿 렌더링 시 사용)
-# CONTAINER_NAME:      Task Definition 내에서 정의된 주 애플리케이션 컨테이너의 이름.
-#                      (reusable-deploy-aws 워크플로우가 Task Definition 템플릿 렌더링 시 사용)
-# SUBNET_IDS:          awsvpc 네트워크 모드를 위한 서브넷 ID 목록 (쉼표로 구분).
-#                      (reusable-deploy-aws 에서 사용)
-# SECURITY_GROUP_IDS:  awsvpc 네트워크 모드를 위한 보안 그룹 ID 목록 (쉼표로 구분).
-#                      (reusable-deploy-aws 에서 사용)
-#
-# [애플리케이션 포트 및 접속 정보]
-# SERVER_ADDRESS:      배포 완료 후 접속 테스트에 사용할 서버의 주소 (보통 NLB DNS 이름).
-#                      (reusable-connection-check 워크플로우의 'server_address' 입력으로 사용)
-# HEALTH_CHECK_PORT_VALUE: 컨테이너 내부에서 HTTP Health Check 서버가 리슨할 포트 번호 (예: 8080).
-#                          (reusable-deploy-aws -> Task Definition 환경 변수 및 포트 매핑,
-#                           reusable-connection-check -> 'health_check_port' 입력으로 사용)
-# HTTP_PORT_VALUE:         컨테이너 내부에서 HTTP 서버가 리슨할 포트 번호 (기본값: 8080).
-#                          (reusable-deploy-aws -> Task Definition 환경 변수 및 포트 매핑)
-# HTTPS_PORT_VALUE:        컨테이너 내부에서 HTTPS 서버가 리슨할 포트 번호 (기본값: 58080).
-#                          (reusable-deploy-aws -> Task Definition 환경 변수 및 포트 매핑)
-# WS_PORT_VALUE:           컨테이너 내부에서 WebSocket(WS) Chat 서버가 리슨할 포트 번호 (기본값: 33334, 개발용).
-# NLB_HTTP_PORT:           NLB HTTPS 리스너 포트 번호 (예: 58080).
-#                          (reusable-connection-check -> 'http_port' 입력으로 사용)
-# NLB_WEBSOCKET_PORT:      NLB WSS 리스너 포트 번호 (예: 33335).
-#                          (reusable-connection-check -> 'websocket_port' 입력으로 사용)
-#
-# [애플리케이션 내부 설정 (선택적 Variables)]
-# - 아래 변수들은 필요에 따라 GitHub Variables로 정의하고, reusable-deploy-aws 워크플로우의
-#   jq 명령어를 수정하여 Task Definition의 'environment' 섹션에 주입할 수 있습니다.
-# - 기본값이 코드에 있거나 Dockerfile ENV로 충분하다면 생략 가능합니다.
-# HEALTH_CHECK_IP_VALUE: HTTP 서버가 컨테이너 내부에서 바인딩할 IP 주소 (보통 '0.0.0.0').
-# HTTP_THREADS_VALUE:    HTTP 서버가 사용할 스레드 수.
-# DOC_ROOT_VALUE:        (사용 시) 정적 파일 루트 디렉토리 경로.
-#
-# [애플리케이션 레벨의 비밀 정보 관리]
-# !!! 중요 !!!
-# 만약 애플리케이션 코드에서 DB 비밀번호, 외부 API 키 등 민감한 정보가 필요하다면,
-# GitHub Secrets 값을 Task Definition의 'environment' 섹션에 직접 넣는 것은 매우 위험합니다.
-# 대신, AWS Secrets Manager 또는 AWS Systems Manager Parameter Store (SecureString 타입)에
-# 해당 비밀 정보를 저장하고, Task Definition의 "secrets" 섹션을 사용하여 컨테이너에 안전하게
-# 전달하는 방식을 사용해야 합니다. 이 경우 ECS Task 실행 역할(TASK_EXECUTION_ROLE_ARN)에
-# 해당 비밀 정보에 접근할 수 있는 IAM 권한이 추가로 필요합니다.
+# --- Variables (설정값) ---
+# DOCKERHUB_REPO: Docker Hub 리포지토리 이름 (사용자명 제외)
+# SERVER_ADDRESS: 서버 주소 (예: cherryrecorder.example.com)
+# HTTP_PORT_VALUE: HTTP 포트 (기본: 8080)
+# WS_PORT_VALUE: WebSocket 포트 (기본: 33334)
 # =====================================================================
 
 on:
-  # main 브랜치 push 또는 main 브랜치 대상 PR 시 실행
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch: # 수동 실행 가능
 
 jobs:
   # --- 1. C++ 코드 빌드 및 테스트 ---
@@ -102,26 +33,19 @@ jobs:
 
   # --- 2. 문서 생성 ---
   call_docs_build:
-    # 빌드/테스트가 성공하면 Doxygen 문서를 생성하고 아티팩트를 업로드합니다. (캐싱 적용됨)
     name: 2. Generate Documentation
     uses: ./.github/workflows/reusable-docs-build.yml
     needs: call_build_test
-    # reusable-docs-build.yml의 job 레벨 outputs 정의가 필요함
-    # 예:
-    # outputs:
-    #  docs-generated: ${{ jobs.docs_job.outputs.docs-generated }}
 
   # --- 3. GitHub Pages 배포 ---
-  # 문서가 '새로 생성되었을 경우에만' GitHub Pages로 배포합니다.
   deploy_docs_pages:
     name: 3. Deploy Docs to GitHub Pages
     runs-on: ubuntu-24.04
-    needs: call_docs_build  # Job 2 (문서 생성/캐싱) 완료 후 실행
-    # call_docs_build 작업의 docs-generated 출력이 'true'일 때만 이 작업을 실행
+    needs: call_docs_build
     if: |
         needs.call_docs_build.result == 'success' &&
         needs.call_docs_build.outputs.docs-generated == 'true'
-    permissions: { pages: write, id-token: write }  # Pages 배포 권한
+    permissions: { pages: write, id-token: write }
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -130,7 +54,7 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-  # --- 4. Docker 이미지 빌드 및 태그 지정 ---
+  # --- 4. Docker 이미지 빌드 및 GHCR 푸시 ---
   call_docker_build:
     name: 4. Build Docker Image & Push GHCR
     uses: ./.github/workflows/reusable-docker-build.yml
@@ -139,122 +63,43 @@ jobs:
       packages: write
       contents: read
     with:
-      aws_region: ${{ vars.AWS_REGION }}
-      aws_account_id: ${{ vars.AWS_ACCOUNT_ID }} # ECR 주소 자동 생성 시 필요할 수 있음
-      ecr_repo: ${{ vars.AWS_ECR_REPOSITORY }}
-      dockerhub_repo_base: ${{ vars.DOCKERHUB_REPO }} # 기본 이름 전달
-      ghcr_repo_name: ${{ github.event.repository.name }} # 기본값 사용 예시
-    # outputs 정의 불필요 (needs 문맥 통해 접근)
-    # outputs:
-      # image_digest: ${{ jobs.build_image_job.outputs.image_digest }}
-      # image_tag_sha: ${{ jobs.build_image_job.outputs.image_tag_sha }}
-      # image_name_ecr: ${{ jobs.build_image_job.outputs.image_name_ecr }}
-      # dh_repo_name_base_output: ${{ jobs.build_image_job.outputs.dh_repo_name_base_output }}
-      # ghcr_image_uri_sha: ${{ jobs.build_image_job.outputs.ghcr_image_uri_sha }}
+      aws_region: 'us-east-1' # 기본값 (사용 안 함)
+      aws_account_id: '000000000000' # 기본값 (사용 안 함)
+      ecr_repo: 'dummy' # 기본값 (사용 안 함)
+      dockerhub_repo_base: ${{ vars.DOCKERHUB_REPO }}
+      ghcr_repo_name: ${{ github.event.repository.name }}
 
   # --- 5. Docker Hub 푸시 ---
   call_push_dh:
     name: 5. Push Image to Docker Hub (If Changed)
-    # 빌드 Job 성공 시 실행 (푸시 자체는 내부 조건에 따라 결정됨)
     if: needs.call_docker_build.result == 'success'
     uses: ./.github/workflows/reusable-docker-push-dh.yml
     needs: call_docker_build
     with:
-      # Docker Hub 기본 리포 이름 전달 (사용자명 제외)
       dockerhub_repo_name: ${{ vars.DOCKERHUB_REPO }}
       image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
       image_tag_latest: 'latest'
-      # Pull 대상 GHCR 이미지 URI 전달
       ghcr_image_uri_sha: ${{ needs.call_docker_build.outputs.ghcr_image_uri_sha }}
-      # 빌드된 이미지 다이제스트 전달
       image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }}
     secrets:
       dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
       dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
-    # outputs: # 푸시 발생 여부 필요 시
-    #  pushed: ${{ jobs.push_dh_job.outputs.pushed }}
 
-  # --- 6. ECR 푸시 ---
-  call_push_ecr:
-    name: 6. Push Image to AWS ECR (If Changed)
-    if: needs.call_docker_build.result == 'success'
-    uses: ./.github/workflows/reusable-docker-push-ecr.yml
-    needs: call_docker_build
-    permissions:
-      id-token: write
-      packages: read # GHCR Pull 위해 필요할 수 있음
-    with:
-      image_name_ecr: ${{ needs.call_docker_build.outputs.image_name_ecr }}
-      image_tag_sha: ${{ needs.call_docker_build.outputs.image_tag_sha }}
-      image_tag_latest: 'latest'
-      aws_region: ${{ vars.AWS_REGION }}
-      image_digest_built: ${{ needs.call_docker_build.outputs.image_digest }}
-      # Pull 대상 GHCR 이미지 URI 전달
-      ghcr_image_uri_sha: ${{ needs.call_docker_build.outputs.ghcr_image_uri_sha }}
-    secrets:
-      aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-    # outputs: # 푸시 발생 여부 필요 시
-    #  pushed: ${{ jobs.push_ecr_job.outputs.pushed }}
-
-  # --- 7. AWS ECS 배포 ---
-  call_deploy_aws:
-    name: 7. Deploy Application to AWS ECS
-    # ECR 푸시 Job이 성공했고('success') 그리고 실제로 푸시가 발생했을 때('true')만 실행
-    if: |
-      needs.call_push_ecr.result == 'success' &&
-      needs.call_push_ecr.outputs.pushed == 'true'
-    uses: ./.github/workflows/reusable-deploy-aws.yml
-    needs:
-      - call_docker_build # 이미지 정보 필요
-      - call_push_ecr     # ECR 푸시 완료 후
-    permissions:
-      id-token: write
-      contents: read
-    with:
-      # ECR 이미지 정보 (SHA 태그 사용)
-      image_name_ecr: ${{ needs.call_docker_build.outputs.image_name_ecr }}
-      image_tag: ${{ needs.call_docker_build.outputs.image_tag_sha }}
-      # AWS 및 ECS 정보 (Variables 사용)
-      aws_region: ${{ vars.AWS_REGION }}
-      ecs_cluster_name: ${{ vars.ECS_CLUSTER_NAME }}
-      ecs_service_name: ${{ vars.ECS_SERVICE_NAME }}
-      container_name: ${{ vars.CONTAINER_NAME }}
-      ecs_task_def_family: ${{ vars.ECS_TASK_DEF_FAMILY }}
-      # Task Definition 템플릿 경로
-      task_definition_template_path: .github/task-definition.json.template # 경로 확인 필요
-      # Task Definition 템플릿 변수 전달
-      health_check_port_value: ${{ vars.HEALTH_CHECK_PORT_VALUE }}
-      http_port_value: ${{ vars.HTTP_PORT_VALUE }}
-      https_port_value: ${{ vars.HTTPS_PORT_VALUE }}
-      # WebSocket 포트 사용 (33334)
-      websocket_port_value: ${{ vars.WS_PORT_VALUE }}
-      # 네트워크 구성 (awsvpc 모드)
-      subnet_ids: ${{ vars.SUBNET_IDS }}
-      security_group_ids: ${{ vars.SECURITY_GROUP_IDS }}
-    secrets:
-      # AWS OIDC 역할 ARN
-      aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-      # Task 실행 역할 ARN (템플릿 내 $EXECUTION_ROLE_ARN 변수용)
-      task_execution_role_arn: ${{ secrets.TASK_EXECUTION_ROLE_ARN }}
-      # GOOGLE_MAPS_API_KEY 전달 추가 (유지)
-      GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
-
-  # --- 8. 연결 확인 ---
-  # 수정: reusable-connection-check.yml의 inputs에 맞게 with 블록 사용
+  # --- 6. 연결 확인 (Watchtower 자동 배포 대기) ---
   call_connection_check:
-    name: 8. Connection Check to Deployed Server
-    if: needs.call_deploy_aws.result == 'success' # 배포 성공 시에만 실행
+    name: 6. Connection Check (Wait for Watchtower)
+    if: |
+      needs.call_push_dh.result == 'success' &&
+      needs.call_push_dh.outputs.pushed == 'true' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
     uses: ./.github/workflows/reusable-connection-check.yml
-    needs: call_deploy_aws
-    # continue-on-error 제거하여 연결 실패 시 전체 워크플로우가 실패하도록 함
-    with: # inputs 전달을 위해 with 사용
-      # GitHub 저장소 Variables 참조
+    needs: call_push_dh
+    with:
       server_address: ${{ vars.SERVER_ADDRESS }}
-      health_check_port: ${{ vars.HEALTH_CHECK_PORT_VALUE }} # HTTP 포트
-      # NLB 리스너 포트를 GitHub Variables에서 가져오기
-      http_port: ${{ vars.NLB_HTTP_PORT }}        # NLB HTTPS 리스너 포트 (58080)
-      websocket_port: ${{ vars.NLB_WEBSOCKET_PORT }}   # NLB WSS 리스너 포트 (33335)
-      # 아래는 선택적 입력 (필요 시 vars에서 가져오거나 직접 값 지정)
-      # max_attempts: '6'
-      # retry_delay_seconds: '10'
-      # connect_timeout_seconds: '5'
+      health_check_port: ${{ vars.HTTP_PORT_VALUE }}
+      http_port: ${{ vars.HTTP_PORT_VALUE }}
+      websocket_port: ${{ vars.WS_PORT_VALUE }}
+      max_attempts: '60'              # 10분 / 10초 = 60회
+      retry_delay_seconds: '10'       # 10초 간격
+      connect_timeout_seconds: '5'    # 각 시도 타임아웃
