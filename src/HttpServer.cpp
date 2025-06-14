@@ -263,6 +263,7 @@ private:
     void handle_places_nearby_request() {
         fprintf(stdout, "[HttpSession %p] Handling /places/nearby request.\n", (void*)this);
         http::response<http::string_body> res = places_handler_->handleNearbySearch(req_);
+        add_cors_headers(res);  // CORS 헤더 추가
         send_response(std::move(res));
     }
     
@@ -272,6 +273,7 @@ private:
     void handle_places_search_request() {
         fprintf(stdout, "[HttpSession %p] Handling /places/search request.\n", (void*)this);
         http::response<http::string_body> res = places_handler_->handleTextSearch(req_);
+        add_cors_headers(res);  // CORS 헤더 추가
         send_response(std::move(res));
     }
     
@@ -286,6 +288,7 @@ private:
         ///< @note 현재는 Google API 응답 형식을 그대로 클라이언트에 반환합니다.
         ///< @todo 필요 시 응답 형식을 변환하는 transformPlaceDetails 함수를 구현할 수 있습니다.
         http::response<http::string_body> res = places_handler_->handlePlaceDetails(place_id);
+        add_cors_headers(res);  // CORS 헤더 추가
         send_response(std::move(res));
     }
 
@@ -298,6 +301,7 @@ private:
         
         // Google Places Photo API를 통해 이미지 가져오기
         http::response<http::string_body> res = places_handler_->handlePlacePhoto(photo_reference);
+        add_cors_headers(res);  // CORS 헤더 추가
         send_response(std::move(res));
     }
 
