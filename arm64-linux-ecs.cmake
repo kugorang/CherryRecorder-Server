@@ -1,30 +1,21 @@
+# vcpkg triplet for ARM64 Linux (ECS optimized)
 set(VCPKG_TARGET_ARCHITECTURE arm64)
 set(VCPKG_CRT_LINKAGE dynamic)
 set(VCPKG_LIBRARY_LINKAGE static)
-
 set(VCPKG_CMAKE_SYSTEM_NAME Linux)
 
-# ECS 호환성을 위한 컴파일 플래그
-set(VCPKG_C_FLAGS "-DEVENT_DISABLE_EPOLL=1 -DEVENT_DISABLE_EPOLLSIG=1 -fPIC")
-set(VCPKG_CXX_FLAGS "-DEVENT_DISABLE_EPOLL=1 -DEVENT_DISABLE_EPOLLSIG=1 -fPIC")
+# Optimization flags for ARM64 ECS environment
+set(VCPKG_C_FLAGS "-march=armv8-a -mtune=generic -O3 -fPIC")
+set(VCPKG_CXX_FLAGS "-march=armv8-a -mtune=generic -O3 -fPIC -std=c++20")
 
-# ARM64 최적화 플래그 추가
-set(VCPKG_C_FLAGS "${VCPKG_C_FLAGS} -march=armv8-a+crc+crypto")
-set(VCPKG_CXX_FLAGS "${VCPKG_CXX_FLAGS} -march=armv8-a+crc+crypto")
+# Use Release builds for better performance
+set(VCPKG_BUILD_TYPE release)
 
-# Release 빌드 최적화
-set(VCPKG_C_FLAGS_RELEASE "-O2 -DNDEBUG")
-set(VCPKG_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+# Disable debug symbols to reduce image size
+set(VCPKG_RELEASE_FLAGS "-O3 -DNDEBUG")
 
-# libevent 특정 설정 (feature flags)
-if(PORT MATCHES "libevent")
-    set(VCPKG_CMAKE_CONFIGURE_OPTIONS
-        -DEVENT__DISABLE_EPOLL=ON
-        -DEVENT__DISABLE_POLL=OFF
-        -DEVENT__DISABLE_SELECT=OFF
-        -DEVENT__DISABLE_KQUEUE=ON
-        -DEVENT__DISABLE_DEVPOLL=ON
-        -DEVENT__DISABLE_EVPORT=ON
-        -DEVENT__ENABLE_GCC_WARNINGS=OFF
-    )
-endif()
+# Platform-specific settings
+set(VCPKG_CMAKE_CONFIGURE_OPTIONS
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
+)
