@@ -136,7 +136,17 @@ RUN --mount=type=cache,target=/root/.cache/vcpkg \
     --mount=type=cache,target=/app/build/vcpkg_installed \
     --mount=type=cache,target=/tmp/vcpkg \
     # 1. vcpkg로 의존성 명시적 설치 (ECS 호환 triplet 사용)
-    TRIPLET=${TARGETARCH:+${TARGETARCH}-linux-ecs}${TARGETARCH:-x64-linux-ecs} && \
+    # TARGETARCH 디버깅 및 triplet 설정
+    echo "TARGETARCH value: '${TARGETARCH}'" && \
+    if [ -z "${TARGETARCH}" ]; then \
+        TRIPLET="x64-linux-ecs"; \
+    elif [ "${TARGETARCH}" = "amd64" ]; then \
+        TRIPLET="x64-linux-ecs"; \
+    elif [ "${TARGETARCH}" = "arm64" ]; then \
+        TRIPLET="arm64-linux-ecs"; \
+    else \
+        echo "Unknown TARGETARCH: ${TARGETARCH}"; exit 1; \
+    fi && \
     echo "Using triplet: $TRIPLET" && \
     /opt/vcpkg/vcpkg install --triplet $TRIPLET --clean-after-build && \
     # 2. CMake 실행
