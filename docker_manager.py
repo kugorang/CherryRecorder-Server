@@ -256,6 +256,7 @@ def main():
                     "--privileged",  # WSL2/ECS libevent 문제 해결
                     "--log-driver", "awslogs",
                     "--log-opt", f"awslogs-group=/ecs/cherryrecorder-server",
+                    "--log-opt", f"awslogs-region=ap-northeast-2",
                     "--log-opt", f"awslogs-stream=local-test",
                     "--restart", "unless-stopped"
                 ]
