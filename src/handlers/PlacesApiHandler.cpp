@@ -97,10 +97,7 @@ http::response<http::string_body> PlacesApiHandler::handleNearbySearch(
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
         res.set(http::field::content_type, "application/json");
-        // CORS 헤더 추가
-        res.set(http::field::access_control_allow_origin, "*");
-        res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
-        res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
+        // CORS 헤더는 HttpServer에서 중앙 관리하므로 여기서는 설정하지 않음
         res.keep_alive(req.keep_alive());
         // JSON을 최소화하여 직렬화 (공백 제거)
         res.body() = json::serialize(response_data);
@@ -194,10 +191,7 @@ http::response<http::string_body> PlacesApiHandler::handleTextSearch(
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
         res.set(http::field::content_type, "application/json");
-        // CORS 헤더 추가
-        res.set(http::field::access_control_allow_origin, "*");
-        res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
-        res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
+        // CORS 헤더는 HttpServer에서 중앙 관리하므로 여기서는 설정하지 않음
         res.keep_alive(req.keep_alive());
         // JSON을 최소화하여 직렬화 (공백 제거)
         res.body() = json::serialize(response_data);
@@ -235,9 +229,7 @@ http::response<http::string_body> PlacesApiHandler::handlePlaceDetails(
             error_res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
             error_res.set(http::field::content_type, "application/json"); // Google 오류는 JSON일 수 있음
             // CORS 헤더 추가
-            error_res.set(http::field::access_control_allow_origin, "*");
-            error_res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
-            error_res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
+            // CORS 헤더는 HttpServer에서 중앙 관리하므로 여기서는 설정하지 않음
             error_res.body() = error_body;
             error_res.prepare_payload();
             return error_res;
@@ -250,10 +242,7 @@ http::response<http::string_body> PlacesApiHandler::handlePlaceDetails(
         http::response<http::string_body> res{http::status::ok, 11}; 
         res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
         res.set(http::field::content_type, "application/json");
-        // CORS 헤더 추가
-        res.set(http::field::access_control_allow_origin, "*");
-        res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
-        res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
+        // CORS 헤더는 HttpServer에서 중앙 관리하므로 여기서는 설정하지 않음
         res.body() = json::serialize(response_data); // 여기서 response_data는 파싱된 Google 응답
         res.prepare_payload();
         return res;
@@ -520,10 +509,7 @@ http::response<http::string_body> PlacesApiHandler::createErrorResponse(
     http::response<http::string_body> res{status_code, 11}; // HTTP/1.1 가정
     res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
     res.set(http::field::content_type, "application/json");
-    // CORS 헤더 추가
-    res.set(http::field::access_control_allow_origin, "*");
-    res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
-    res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
+    // CORS 헤더는 HttpServer에서 중앙 관리하므로 여기서는 설정하지 않음
     
     json::object error_obj;
     error_obj["error"] = error;
@@ -678,10 +664,7 @@ http::response<http::string_body> PlacesApiHandler::handlePlacePhoto(
             img_res.set(http::field::content_type, "image/jpeg"); // 기본값
         }
         
-        // CORS 헤더 추가
-        img_res.set(http::field::access_control_allow_origin, "*");
-        img_res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
-        img_res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
+        // CORS 헤더는 HttpServer에서 중앙 관리하므로 여기서는 설정하지 않음
         
         // 이미지 데이터를 string으로 변환하여 저장
         img_res.body() = beast::buffers_to_string(res.body().data());
