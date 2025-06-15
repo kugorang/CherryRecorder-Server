@@ -1,228 +1,181 @@
 # CherryRecorder Server
 
-Google Places API와 통합된 C++ HTTP/WebSocket 서버
+WebSocket 기반 실시간 채팅 서버 및 Google Maps Places API 프록시 서버
 
-## ✨ 주요 기능
+## 🚀 주요 기능
 
-- ✅ HTTP REST API 서버
-- ✅ WebSocket 채팅 서버
-- ✅ Google Places API 프록시
-- ✅ 멀티 아키텍처 지원 (AMD64/ARM64)
-- ✅ Docker 컨테이너화
-- ✅ GitHub Actions CI/CD 자동화
+- **HTTP/HTTPS API 서버**: Google Maps Places API 프록시
+- **WebSocket 채팅 서버**: 실시간 멀티룸 채팅 지원
+- **Docker 지원**: 멀티 아키텍처 이미지 (AMD64/ARM64)
+- **자동 배포**: GitHub Actions + Docker Hub + Watchtower
 
-## 🚀 빠른 시작
+## 📋 시스템 요구사항
+
+- Ubuntu 22.04/24.04
+- CMake 3.20+
+- C++20 지원 컴파일러
+- Docker (선택사항)
+
+## 🔧 빠른 시작
+
+### Docker를 사용한 실행 (권장)
 
 ```bash
+# Docker Hub에서 이미지 받기
+docker pull kugorang/cherryrecorder-server:latest
+
+# 환경 변수 파일 생성
+cat > .env.docker << EOF
+GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
+HISTORY_DIR=/home/appuser/app/history
+HTTP_PORT=8080
+EOF
+
+# 실행
 docker run -d \
   --name cherryrecorder-server \
+  --env-file .env.docker \
   -p 8080:8080 \
   -p 33334:33334 \
-  -e GOOGLE_MAPS_API_KEY="your-api-key" \
+  -v $(pwd)/history:/home/appuser/app/history \
   kugorang/cherryrecorder-server:latest
 ```
 
-## 🌐 네트워크 아키텍처
-
-### SSL Termination 구조
-
-```
-[클라이언트] → HTTPS(443) → [nginx] → HTTP(8080) → [Docker Container]
-                                   → WS(33334)  →
-```
-
-### HTTPS/WSS 라우팅 원리
-
-nginx는 동일한 443 포트에서 HTTP 헤더를 확인하여 라우팅합니다:
-- `Upgrade: websocket` 헤더 있음 → WebSocket (33334)
-- `Upgrade: websocket` 헤더 없음 → HTTP API (8080)
-
-## 📋 API 엔드포인트
-
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| GET | `/health` | 헬스체크 |
-| GET | `/status` | 서버 상태 |
-| GET | `/maps/key` | Google Maps API 키 조회 |
-| POST | `/places/nearby` | 주변 장소 검색 |
-| POST | `/places/search` | 텍스트로 장소 검색 |
-| GET | `/places/details/{id}` | 장소 상세 정보 |
-| GET | `/place/photo/{reference}` | 장소 사진 조회 |
-
-### API 사용 예시
+### 로컬 빌드 및 실행
 
 ```bash
-# 주변 장소 검색
-curl -X POST https://your-domain.com/api/places/nearby \
-  -H "Content-Type: application/json" \
-  -d '{
-    "latitude": 37.5665,
-    "longitude": 126.9780,
-    "radius": 1500
-  }'
+# 의존성 설치 (vcpkg)
+git clone https://github.com/microsoft/vcpkg.git
+./vcpkg/bootstrap-vcpkg.sh
+./vcpkg/vcpkg install
 
-# WebSocket 연결 (JavaScript)
-const ws = new WebSocket('wss://your-domain.com/ws');
-ws.onmessage = (event) => console.log('메시지:', event.data);
+# 빌드
+cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+
+# 환경 변수 설정
+export GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
+
+# 실행
+./build/CherryRecorder-Server-App
 ```
 
-## 🏠 라즈베리파이 배포
+## 🌐 API 엔드포인트
 
-### 1. 네트워크 설정
+### HTTP API (포트 8080)
+- `GET /health` - 헬스체크
+- `GET /place/details` - Google Places 상세정보
+- `GET /place/photo` - Google Places 사진
+- `GET /place/autocomplete` - 장소 자동완성
+- `GET /place/textsearch` - 텍스트 검색
+- `GET /place/nearbysearch` - 주변 검색
 
-#### 공유기 포트 포워딩
-```
-외부 80  → 내부 192.168.0.100:80
-외부 443 → 내부 192.168.0.100:443
-```
+### WebSocket (포트 33334)
+- `/chat` - 채팅 WebSocket 엔드포인트
+- 메시지 형식: JSON
+  ```json
+  {
+    "type": "join|leave|message",
+    "room": "room_name",
+    "message": "content",
+    "nickname": "user_nickname"
+  }
+  ```
 
-#### 방화벽 설정
-```bash
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 22/tcp  # SSH
-sudo ufw enable
-```
+## 🏗️ 아키텍처
 
-### 2. nginx 설정
+- **Boost.Beast**: HTTP/WebSocket 서버
+- **nlohmann/json**: JSON 파싱
+- **spdlog**: 로깅
+- **cpr**: HTTP 클라이언트
+- **SQLite3**: 메시지 히스토리 저장
 
-```bash
-sudo apt update && sudo apt install nginx
-sudo nano /etc/nginx/sites-available/cherryrecorder
-```
+## 🚀 CI/CD
+
+### GitHub Actions 워크플로우
+1. `main` 브랜치 푸시 시 자동 실행
+2. C++ 빌드 및 테스트
+3. Docker 이미지 빌드 (멀티 아키텍처)
+4. Docker Hub 푸시
+5. Watchtower가 자동으로 프로덕션 서버 업데이트
+
+### 필요한 GitHub Secrets
+- `DOCKERHUB_USERNAME`: Docker Hub 사용자명
+- `DOCKERHUB_TOKEN`: Docker Hub 액세스 토큰
+- `GOOGLE_MAPS_API_KEY`: Google Maps API 키
+
+### 필요한 GitHub Variables
+- `DOCKERHUB_REPO`: Docker Hub 리포지토리명
+- `SERVER_ADDRESS`: 서버 주소 (예: example.com)
+- `HTTP_PORT_VALUE`: HTTP 포트 (기본: 8080)
+- `WS_PORT_VALUE`: WebSocket 포트 (기본: 33334)
+
+## 🐳 Docker 이미지
+
+- **최신 버전**: `kugorang/cherryrecorder-server:latest`
+- **지원 아키텍처**: linux/amd64, linux/arm64
+- **베이스 이미지**: Ubuntu 24.04
+
+## 🔒 프로덕션 배포
+
+### nginx 리버스 프록시 설정 예시
 
 ```nginx
 server {
-    listen 80;
-    server_name your-domain.com;
-    return 301 https://$server_name$request_uri;
-}
-
-server {
     listen 443 ssl http2;
-    server_name your-domain.com;
-    
-    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
-    
-    location /api/ {
-        proxy_pass http://localhost:8080/;
+    server_name example.com;
+
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+
+    location /api {
+        proxy_pass http://localhost:8080;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
     }
-    
+
     location /ws {
         proxy_pass http://localhost:33334;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_read_timeout 86400;
     }
 }
 ```
 
-```bash
-sudo ln -s /etc/nginx/sites-available/cherryrecorder /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl restart nginx
-```
-
-### 3. SSL 인증서
-
-```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com
-```
-
-### 4. Docker 설치
-
-```bash
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-sudo usermod -aG docker $USER
-newgrp docker
-```
-
-### 5. 자동 업데이트 (Watchtower)
+### Watchtower 자동 배포
 
 ```bash
 docker run -d \
   --name watchtower \
-  --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock \
   containrrr/watchtower \
   --interval 300 \
-  --cleanup \
   cherryrecorder-server
 ```
 
-### 6. 서버 실행
-
-```bash
-docker run -d \
-  --name cherryrecorder-server \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  -p 33334:33334 \
-  -e GOOGLE_MAPS_API_KEY="your-api-key" \
-  kugorang/cherryrecorder-server:latest
-```
-
-## 🔧 환경 변수
+## 📝 환경 변수
 
 | 변수명 | 설명 | 기본값 |
 |--------|------|--------|
-| `GOOGLE_MAPS_API_KEY` | **필수** Google Maps API 키 | - |
-| `HTTP_PORT` | HTTP API 포트 | 8080 |
-| `WS_PORT` | WebSocket 포트 | 33334 |
+| `GOOGLE_MAPS_API_KEY` | Google Maps API 키 | 필수 |
+| `HTTP_PORT` | HTTP 서버 포트 | 8080 |
+| `HISTORY_DIR` | 채팅 히스토리 저장 경로 | ./history |
 
-## 🔄 CI/CD 설정
+## 📄 라이센스
 
-### GitHub Actions
-- **Secrets**: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `GOOGLE_MAPS_API_KEY`
-- **Variables**: `DOCKERHUB_REPO`, `SERVER_ADDRESS`, `HTTP_PORT_VALUE`, `WS_PORT_VALUE`
+이 프로젝트는 BSD 3-Clause 라이센스 하에 배포됩니다.
 
-### 자동화 프로세스
-1. 코드 Push → GitHub Actions 트리거
-2. C++ 빌드/테스트 → Docker 이미지 생성
-3. Docker Hub 푸시 → Watchtower 감지
-4. 컨테이너 자동 업데이트
+## 👤 개발자
 
-## 🛠 개발
+- **Kim Hyeonwoo** - [kugorang](https://github.com/kugorang)
+- 이메일: ialskdji@gmail.com
 
-### 빌드
-```bash
-cmake -B build -S . \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake
-cmake --build build
-```
+## 🤝 기여
 
-### 의존성
-- Boost.Beast (HTTP/WebSocket)
-- Boost.JSON
-- OpenSSL
-- spdlog
-
-## 🔍 트러블슈팅
-
-```bash
-# 포트 확인
-sudo netstat -tlnp | grep -E '(80|443|8080|33334)'
-
-# 로그 확인
-docker logs cherryrecorder-server -f
-sudo tail -f /var/log/nginx/error.log
-```
-
-## 📄 라이선스
-
-BSD 3-Clause License
-
-## 💬 지원
-
-- [GitHub Issues](https://github.com/kugorang/cherryrecorder-server/issues)
-- [API Docs](https://kugorang.github.io/cherryrecorder-server)
+1. 프로젝트를 Fork 합니다
+2. 기능 브랜치를 생성합니다 (`git checkout -b feature/AmazingFeature`)
+3. 변경사항을 커밋합니다 (`git commit -m 'Add some AmazingFeature'`)
+4. 브랜치에 푸시합니다 (`git push origin feature/AmazingFeature`)
+5. Pull Request를 생성합니다
