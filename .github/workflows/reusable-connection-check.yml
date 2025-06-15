@@ -181,14 +181,33 @@ jobs:
             echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
             
             # WebSocket 연결을 시도 (curl로 WebSocket upgrade 테스트)
-            WS_TEST_CMD="curl -sSv --connect-timeout $CONNECT_TIMEOUT -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==' https://${WS_ENDPOINT}/ws"
+            # curl의 전체 출력을 변수에 저장
+            echo "Running WebSocket upgrade test..."
+            CURL_OUTPUT=$(curl -i --connect-timeout $CONNECT_TIMEOUT \
+              -H 'Upgrade: websocket' \
+              -H 'Connection: Upgrade' \
+              -H 'Sec-WebSocket-Version: 13' \
+              -H 'Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==' \
+              -H 'Origin: https://kugorang.github.io' \
+              https://${WS_ENDPOINT}/ws 2>&1)
             
-            echo "Running: $WS_TEST_CMD"
-            if eval "$WS_TEST_CMD" 2>&1 | grep -qE "(101 Switching Protocols|HTTP/1.1 101|HTTP/2 101)"; then
+            echo "Response:"
+            echo "$CURL_OUTPUT" | head -20
+            
+            # 101 Switching Protocols 응답 확인
+            if echo "$CURL_OUTPUT" | grep -qE "(101 Switching Protocols|HTTP/[0-9.]+ 101)"; then
               echo "✅ WS handshake successful via nginx/ALB proxy!"
               break
             else
               echo "❌ WS connection test failed"
+              # 추가 디버깅 정보
+              if echo "$CURL_OUTPUT" | grep -q "404"; then
+                echo "   → 404 Not Found: /ws endpoint might not exist"
+              elif echo "$CURL_OUTPUT" | grep -q "400"; then
+                echo "   → 400 Bad Request: WebSocket upgrade headers might be blocked"
+              elif echo "$CURL_OUTPUT" | grep -q "502"; then
+                echo "   → 502 Bad Gateway: Backend WebSocket server might be down"
+              fi
             fi
             
             if [ $attempt -eq $MAX_ATTEMPTS ]; then
