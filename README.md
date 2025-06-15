@@ -4,7 +4,7 @@ WebSocket 기반 실시간 채팅 서버 및 Google Maps Places API 프록시 �
 
 ## 🚀 주요 기능
 
-- **HTTP/HTTPS API 서버**: Google Maps Places API 프록시
+- **HTTP API 서버**: Google Maps Places API 프록시
 - **WebSocket 채팅 서버**: 실시간 멀티룸 채팅 지원
 - **Docker 지원**: 멀티 아키텍처 이미지 (AMD64/ARM64)
 - **자동 배포**: GitHub Actions + Docker Hub + Watchtower
@@ -63,15 +63,49 @@ export GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
 ## 🌐 API 엔드포인트
 
 ### HTTP API (포트 8080)
-- `GET /health` - 헬스체크
-- `GET /place/details` - Google Places 상세정보
-- `GET /place/photo` - Google Places 사진
-- `GET /place/autocomplete` - 장소 자동완성
-- `GET /place/textsearch` - 텍스트 검색
-- `GET /place/nearbysearch` - 주변 검색
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| GET | `/health` | 헬스체크 |
+| GET | `/status` | 서버 상태 |
+| GET | `/maps/key` | Google Maps API 키 반환 |
+| POST | `/places/nearby` | 주변 장소 검색 |
+| POST | `/places/search` | 텍스트 기반 장소 검색 |
+| GET | `/places/details/{placeId}` | 장소 상세정보 |
+| GET | `/place/photo/{photoRef}` | 장소 사진 |
+
+#### 요청 예시
+
+**주변 장소 검색**
+```bash
+curl -X POST http://localhost:8080/places/nearby \
+  -H "Content-Type: application/json" \
+  -d '{
+    "latitude": 37.5665,
+    "longitude": 126.9780,
+    "radius": 500
+  }'
+```
+
+**텍스트 검색**
+```bash
+curl -X POST http://localhost:8080/places/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "강남역 카페",
+    "latitude": 37.5665,
+    "longitude": 126.9780,
+    "radius": 5000
+  }'
+```
+
+**장소 상세정보**
+```bash
+curl http://localhost:8080/places/details/ChIJxxxxxxxxxxxxxx
+```
 
 ### WebSocket (포트 33334)
-- `/chat` - 채팅 WebSocket 엔드포인트
+- 엔드포인트: `/chat`
 - 메시지 형식: JSON
   ```json
   {
@@ -128,8 +162,9 @@ server {
     ssl_certificate /path/to/cert.pem;
     ssl_certificate_key /path/to/key.pem;
 
-    location /api {
-        proxy_pass http://localhost:8080;
+    # API 프록시 (/api 접두사 제거)
+    location /api/ {
+        proxy_pass http://localhost:8080/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -157,11 +192,11 @@ docker run -d \
 
 ## 📝 환경 변수
 
-| 변수명 | 설명 | 기본값 |
-|--------|------|--------|
-| `GOOGLE_MAPS_API_KEY` | Google Maps API 키 | 필수 |
-| `HTTP_PORT` | HTTP 서버 포트 | 8080 |
-| `HISTORY_DIR` | 채팅 히스토리 저장 경로 | ./history |
+| 변수명 | 설명 | 기본값 | 필수 |
+|--------|------|--------|------|
+| `GOOGLE_MAPS_API_KEY` | Google Maps API 키 | - | ✓ |
+| `HTTP_PORT` | HTTP 서버 포트 | 8080 | |
+| `HISTORY_DIR` | 채팅 히스토리 저장 경로 | ./history | |
 
 ## 📄 라이센스
 
