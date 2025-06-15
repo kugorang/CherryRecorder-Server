@@ -6,7 +6,7 @@ WebSocket 기반 실시간 채팅 서버 및 Google Maps Places API 프록시 �
 
 - **HTTP API 서버**: Google Maps Places API 프록시
 - **WebSocket 채팅 서버**: 실시간 멀티룸 채팅 지원
-- **Docker 지원**: 멀티 아키텍처 이미지 (AMD64/ARM64)
+- **멀티 아키텍처**: AMD64, ARM64 (Raspberry Pi 5) 지원
 - **자동 배포**: GitHub Actions + Docker Hub + Watchtower
 
 ## 📋 시스템 요구사항
@@ -39,6 +39,13 @@ docker run -d \
   -p 33334:33334 \
   -v $(pwd)/history:/home/appuser/app/history \
   kugorang/cherryrecorder-server:latest
+```
+
+### ARM64 (Raspberry Pi 5) 지원
+```bash
+# ARM64 아키텍처에서도 동일한 명령어로 실행 가능
+# Docker가 자동으로 올바른 아키텍처 이미지를 선택합니다
+docker pull kugorang/cherryrecorder-server:latest
 ```
 
 ### 로컬 빌드 및 실행
@@ -99,22 +106,14 @@ curl -X POST http://localhost:8080/places/search \
   }'
 ```
 
-**장소 상세정보**
-```bash
-curl http://localhost:8080/places/details/ChIJxxxxxxxxxxxxxx
-```
-
 ### WebSocket (포트 33334)
-- 엔드포인트: `/chat`
-- 메시지 형식: JSON
-  ```json
-  {
-    "type": "join|leave|message",
-    "room": "room_name",
-    "message": "content",
-    "nickname": "user_nickname"
-  }
-  ```
+- 엔드포인트: `/ws` (nginx 프록시 경로)
+- 직접 연결시: `ws://localhost:33334`
+- 메시지 형식: 텍스트 기반 채팅
+
+#### WebSocket 명령어
+- `/nick <닉네임>`: 닉네임 변경
+- 일반 텍스트: 채팅 메시지 전송
 
 ## 🏗️ 아키텍처
 
@@ -129,7 +128,7 @@ curl http://localhost:8080/places/details/ChIJxxxxxxxxxxxxxx
 ### GitHub Actions 워크플로우
 1. `main` 브랜치 푸시 시 자동 실행
 2. C++ 빌드 및 테스트
-3. Docker 이미지 빌드 (멀티 아키텍처)
+3. Docker 멀티 아키텍처 이미지 빌드 (linux/amd64, linux/arm64)
 4. Docker Hub 푸시
 5. Watchtower가 자동으로 프로덕션 서버 업데이트
 
@@ -140,7 +139,7 @@ curl http://localhost:8080/places/details/ChIJxxxxxxxxxxxxxx
 
 ### 필요한 GitHub Variables
 - `DOCKERHUB_REPO`: Docker Hub 리포지토리명
-- `SERVER_ADDRESS`: 서버 주소 (예: example.com)
+- `SERVER_ADDRESS`: 서버 주소 (예: your-domain.com)
 - `HTTP_PORT_VALUE`: HTTP 포트 (기본: 8080)
 - `WS_PORT_VALUE`: WebSocket 포트 (기본: 33334)
 
@@ -149,32 +148,54 @@ curl http://localhost:8080/places/details/ChIJxxxxxxxxxxxxxx
 - **최신 버전**: `kugorang/cherryrecorder-server:latest`
 - **지원 아키텍처**: linux/amd64, linux/arm64
 - **베이스 이미지**: Ubuntu 24.04
+- **멀티 아키텍처 빌드**: GitHub Actions에서 자동 빌드
 
 ## 🔒 프로덕션 배포
 
-### nginx 리버스 프록시 설정 예시
+### nginx 리버스 프록시 설정
 
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name example.com;
+    server_name your-domain.com;
 
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
 
     # API 프록시 (/api 접두사 제거)
     location /api/ {
-        proxy_pass http://localhost:8080/;
+        # CORS 설정 - https://kugorang.github.io 에서만 접근 허용
+        set $cors_origin "";
+        if ($http_origin = "https://kugorang.github.io") {
+            set $cors_origin $http_origin;
+        }
+        
+        add_header 'Access-Control-Allow-Origin' $cors_origin always;
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+        add_header 'Access-Control-Allow-Headers' 'Content-Type,Authorization' always;
+        
+        proxy_pass http://cherryrecorder-server:8080/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
 
+    # WebSocket 프록시
     location /ws {
-        proxy_pass http://localhost:33334;
+        # CORS 설정
+        set $cors_origin "";
+        if ($http_origin = "https://kugorang.github.io") {
+            set $cors_origin $http_origin;
+        }
+        
+        add_header 'Access-Control-Allow-Origin' $cors_origin always;
+        
+        proxy_pass http://cherryrecorder-server:33334;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 86400;
     }
 }
 ```
@@ -197,6 +218,26 @@ docker run -d \
 | `GOOGLE_MAPS_API_KEY` | Google Maps API 키 | - | ✓ |
 | `HTTP_PORT` | HTTP 서버 포트 | 8080 | |
 | `HISTORY_DIR` | 채팅 히스토리 저장 경로 | ./history | |
+
+## 🐛 문제 해결
+
+### ARM64 아키텍처 에러
+```bash
+# exec format error 발생시
+# 1. 이미지가 멀티 아키텍처를 지원하는지 확인
+docker manifest inspect kugorang/cherryrecorder-server:latest
+
+# 2. 강제로 ARM64 버전 pull
+docker pull --platform linux/arm64 kugorang/cherryrecorder-server:latest
+```
+
+### CI/CD WebSocket 테스트 실패
+CI/CD에서 WebSocket 테스트시 Origin 헤더가 필요합니다:
+```bash
+curl -H 'Origin: https://kugorang.github.io' \
+     -H 'Upgrade: websocket' \
+     https://your-domain.com/ws
+```
 
 ## 📄 라이센스
 
