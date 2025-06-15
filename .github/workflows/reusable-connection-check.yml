@@ -115,10 +115,10 @@ jobs:
             echo $delay
           }
           
-          # --- 1. HTTPS Health Endpoint 확인 ---
-          # NLB를 통한 HTTPS 연결
-          HEALTH_URL="https://${{ inputs.server_address }}:${HTTP_PORT}/health"
-          echo "=== Checking HTTPS endpoint: ${HEALTH_URL} ==="
+          # --- 1. HTTP Health Endpoint 확인 ---
+          # nginx/ALB를 통한 HTTPS 연결
+          HEALTH_URL="https://${{ inputs.server_address }}/api/health"
+          echo "=== Checking HTTP endpoint: ${HEALTH_URL} ===
           
           attempt=1
           total_wait_time=0
@@ -130,7 +130,7 @@ jobs:
             # curl의 verbose 모드로 더 자세한 정보 출력
             echo "Running: curl -sSv --fail --connect-timeout $CONNECT_TIMEOUT ${HEALTH_URL}"
             if curl -sSv --fail --connect-timeout $CONNECT_TIMEOUT "${HEALTH_URL}" 2>&1; then
-              echo "✅ Health check successful on port ${HTTP_PORT}!"
+              echo "✅ Health check successful on port ${{ inputs.health_check_port }}!"
               break
             else
               curl_exit_code=$?
@@ -148,7 +148,7 @@ jobs:
             
             if [ $attempt -eq $MAX_ATTEMPTS ]; then
               echo ""
-              echo "❌ Error: HTTPS Health check failed after $MAX_ATTEMPTS attempts."
+              echo "❌ Error: HTTP Health check failed after $MAX_ATTEMPTS attempts."
               echo "Total time waited: ${total_wait_time} seconds"
               echo "Consider checking:"
               echo "  - ECS task logs in CloudWatch"
@@ -167,33 +167,33 @@ jobs:
             attempt=$((attempt+1))
           done
 
-          # --- 2. WSS (TLS) 연결 확인 (NLB를 통한 WSS) ---
+          # --- 2. WS 연결 확인 ---
           echo ""
-          # WebSocket은 독립적인 포트 사용
-          WSS_ENDPOINT="${{ inputs.server_address }}:${WEBSOCKET_PORT}"
-          echo "=== Checking WSS endpoint: wss://${WSS_ENDPOINT}/ws/chat ==="
+          # WebSocket은 nginx/ALB를 통해 프록시
+          WS_ENDPOINT="${{ inputs.server_address }}"
+          echo "=== Checking WS endpoint: wss://${WS_ENDPOINT}/ws/chat ==="
           
           attempt=1
           total_wait_time=0
           while [ $attempt -le $MAX_ATTEMPTS ]; do
             echo ""
-            echo "WSS Check Attempt $attempt/$MAX_ATTEMPTS (Total wait time: ${total_wait_time}s)"
+            echo "WS Check Attempt $attempt/$MAX_ATTEMPTS (Total wait time: ${total_wait_time}s)"
             echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
             
             # WebSocket 연결을 시도 (curl로 WebSocket upgrade 테스트)
-            WS_TEST_CMD="curl -sSv --connect-timeout $CONNECT_TIMEOUT -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==' https://${WSS_ENDPOINT}/ws/chat"
+            WS_TEST_CMD="curl -sSv --connect-timeout $CONNECT_TIMEOUT -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==' https://${WS_ENDPOINT}/ws/chat"
             
             echo "Running: $WS_TEST_CMD"
             if eval "$WS_TEST_CMD" 2>&1 | grep -qE "(101 Switching Protocols|HTTP/1.1 101|HTTP/2 101)"; then
-              echo "✅ WSS (TLS) handshake successful on port ${WEBSOCKET_PORT}!"
+              echo "✅ WS handshake successful via nginx/ALB proxy!"
               break
             else
-              echo "❌ WSS (TLS) connection test failed"
+              echo "❌ WS connection test failed"
             fi
             
             if [ $attempt -eq $MAX_ATTEMPTS ]; then
               echo ""
-              echo "❌ Error: WSS (TLS) connection test failed after $MAX_ATTEMPTS attempts."
+              echo "❌ Error: WS connection test failed after $MAX_ATTEMPTS attempts."
               echo "Total time waited: ${total_wait_time} seconds"
               exit 1
             fi
@@ -202,7 +202,7 @@ jobs:
             RETRY_DELAY=$(calculate_delay $attempt)
             total_wait_time=$((total_wait_time + RETRY_DELAY))
             
-            echo "⏳ WSS (TLS) connection test failed, retrying in $RETRY_DELAY seconds..."
+            echo "⏳ WS connection test failed, retrying in $RETRY_DELAY seconds..."
             sleep $RETRY_DELAY
             attempt=$((attempt+1))
           done
