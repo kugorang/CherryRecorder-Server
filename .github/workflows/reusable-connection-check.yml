@@ -183,7 +183,7 @@ jobs:
             # WebSocket 연결을 시도 (curl로 WebSocket upgrade 테스트)
             # curl의 전체 출력을 변수에 저장
             echo "Running WebSocket upgrade test..."
-            CURL_OUTPUT=$(curl -i --connect-timeout $CONNECT_TIMEOUT \
+            CURL_OUTPUT=$(curl -i --http1.1 --connect-timeout $CONNECT_TIMEOUT \
               -H 'Upgrade: websocket' \
               -H 'Connection: Upgrade' \
               -H 'Sec-WebSocket-Version: 13' \
