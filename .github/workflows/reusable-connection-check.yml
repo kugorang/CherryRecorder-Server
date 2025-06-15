@@ -85,14 +85,14 @@ jobs:
         shell: bash
         continue-on-error: true
 
-      # 초기 대기 시간 추가 (ECS 태스크가 시작되는 시간 확보)
+      # 초기 대기 시간 추가
       - name: Initial wait for service startup
         run: |
           INITIAL_WAIT=${{ inputs.initial_wait_seconds || 30 }}
-          echo "Waiting $INITIAL_WAIT seconds for ECS service to start..."
+          echo "Waiting $INITIAL_WAIT seconds for service to start..."
           echo "This gives time for:"
-          echo "  - ECS task to be scheduled and started"
-          echo "  - Container to pull image and initialize"
+          echo "  - Container to be deployed and started"
+          echo "  - Application to initialize"
           echo "  - Health checks to begin"
           sleep $INITIAL_WAIT
         shell: bash
@@ -118,7 +118,7 @@ jobs:
           # --- 1. HTTP Health Endpoint 확인 ---
           # nginx/ALB를 통한 HTTPS 연결
           HEALTH_URL="https://${{ inputs.server_address }}/api/health"
-          echo "=== Checking HTTP endpoint: ${HEALTH_URL} ===
+          echo "=== Checking HTTP endpoint: ${HEALTH_URL} ==="
           
           attempt=1
           total_wait_time=0
@@ -151,8 +151,8 @@ jobs:
               echo "❌ Error: HTTP Health check failed after $MAX_ATTEMPTS attempts."
               echo "Total time waited: ${total_wait_time} seconds"
               echo "Consider checking:"
-              echo "  - ECS task logs in CloudWatch"
-              echo "  - Target group health in NLB"
+              echo "  - Container logs in deployment environment"
+              echo "  - Target group health in load balancer"
               echo "  - Security group rules"
               exit 1
             fi
