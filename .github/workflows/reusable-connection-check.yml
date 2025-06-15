@@ -171,7 +171,7 @@ jobs:
           echo ""
           # WebSocket은 nginx/ALB를 통해 프록시
           WS_ENDPOINT="${{ inputs.server_address }}"
-          echo "=== Checking WS endpoint: wss://${WS_ENDPOINT}/ws/chat ==="
+          echo "=== Checking WS endpoint: wss://${WS_ENDPOINT}/ws ==="
           
           attempt=1
           total_wait_time=0
@@ -181,7 +181,7 @@ jobs:
             echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
             
             # WebSocket 연결을 시도 (curl로 WebSocket upgrade 테스트)
-            WS_TEST_CMD="curl -sSv --connect-timeout $CONNECT_TIMEOUT -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==' https://${WS_ENDPOINT}/ws/chat"
+            WS_TEST_CMD="curl -sSv --connect-timeout $CONNECT_TIMEOUT -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==' https://${WS_ENDPOINT}/ws"
             
             echo "Running: $WS_TEST_CMD"
             if eval "$WS_TEST_CMD" 2>&1 | grep -qE "(101 Switching Protocols|HTTP/1.1 101|HTTP/2 101)"; then
