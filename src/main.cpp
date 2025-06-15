@@ -1,9 +1,7 @@
 #include "HttpServer.hpp"          // HTTP Server 헤더 (Beast)
-#include "HttpsServer.hpp"         // HTTPS Server 헤더
 #include "../include/ChatServer.hpp"  // ChatServer 추가
 #include <boost/asio/io_context.hpp> // Asio io_context
 #include <boost/asio/signal_set.hpp> // Asio signal_set
-#include <boost/asio/ssl.hpp>        // SSL support
 #include <boost/beast/core/error.hpp> // beast::error_code
 #include <cstdio>                  // fprintf, snprintf 등 C-style I/O
 #include <cstdlib>                 // getenv, exit, stoi (C++11)
@@ -175,88 +173,13 @@ int main(int argc, char* argv[]) {
         std::string http_bind_ip = get_env_var("HTTP_BIND_IP", "0.0.0.0");
         int http_threads = get_int_env_var("HTTP_THREADS", 1); 
         unsigned short ws_port = get_required_port_env_var("WS_PORT", 33334);  // WebSocket 포트
-        
-        // SSL 직접 처리 옵션 (기본값: 비활성화)
-        // 대부분의 환경에서는 nginx나 NLB가 SSL을 처리하므로 필요 없음
-        bool enable_direct_ssl = get_env_var("ENABLE_DIRECT_SSL", "false") == "true";
-        unsigned short https_port = 58080;
-        unsigned short wss_port = 33335;
-        std::string ssl_cert = "";
-        std::string ssl_key = "";
-        std::string ssl_dh = "";
-        
-        if (enable_direct_ssl) {
-            https_port = get_required_port_env_var("HTTPS_PORT", 58080);
-            wss_port = get_required_port_env_var("WSS_PORT", 33335);
-            ssl_cert = get_env_var("SSL_CERT_FILE", "");
-            ssl_key = get_env_var("SSL_KEY_FILE", "");
-            ssl_dh = get_env_var("SSL_DH_FILE", "");
-        }
+
 
         // --- 서버 객체 생성 (로컬 스마트 포인터 사용) ---
         auto http_server = std::make_unique<HttpServer>(http_bind_ip, http_port, http_threads);
-        std::unique_ptr<HttpsServer> https_server;
         auto chat_server = std::make_shared<ChatServer>(ioc, ws_port);  // ChatServer를 여러 WebSocket 리스너가 공유
         std::shared_ptr<WebSocketListener> ws_listener; // ws_listener를 미리 선언
-        std::shared_ptr<WebSocketListener> wss_listener;
 
-        // WSS 리스너 생성 (직접 SSL 처리가 활성화되고 인증서가 있는 경우에만)
-        if (enable_direct_ssl && !ssl_cert.empty() && !ssl_key.empty()) {
-            try {
-                // SSL 컨텍스트 생성
-                net::ssl::context ctx{net::ssl::context::tlsv12};
-                
-                // SSL 옵션 설정
-                ctx.set_options(
-                    net::ssl::context::default_workarounds |
-                    net::ssl::context::no_sslv2 |
-                    net::ssl::context::no_sslv3 |
-                    net::ssl::context::no_tlsv1 |
-                    net::ssl::context::no_tlsv1_1 |
-                    net::ssl::context::single_dh_use);
-                
-                // 인증서와 키 파일 로드
-                ctx.use_certificate_chain_file(ssl_cert);
-                ctx.use_private_key_file(ssl_key, net::ssl::context::pem);
-                
-                // DH 파일이 있으면 로드
-                if (!ssl_dh.empty()) {
-                    ctx.use_tmp_dh_file(ssl_dh);
-                }
-                
-                fprintf(stdout, "Attempting to create WSS listener...\n");
-                wss_listener = std::make_shared<WebSocketListener>(
-                    ioc,
-                    net::ip::tcp::endpoint{net::ip::make_address("0.0.0.0"), wss_port},
-                    chat_server,
-                    std::move(ctx)
-                );
-                
-                fprintf(stdout, "WSS listener created successfully with SSL certificate: %s\n", ssl_cert.c_str());
-            } catch (const std::exception& e) {
-                fprintf(stderr, "Failed to create WSS listener: %s\n", e.what());
-                fprintf(stderr, "WebSocket Secure will not be available.\n");
-            }
-        } else {
-            fprintf(stdout, "SSL certificate not configured. WSS will not be available.\n");
-        }
-        
-        // HTTPS 서버 생성 (직접 SSL 처리가 활성화되고 인증서가 있는 경우에만)
-        if (enable_direct_ssl && !ssl_cert.empty() && !ssl_key.empty()) {
-            try {
-                https_server = std::make_unique<HttpsServer>(
-                    http_bind_ip, https_port, http_threads,
-                    ssl_cert, ssl_key, ssl_dh
-                );
-                fprintf(stdout, "HTTPS server created with SSL certificate: %s\n", ssl_cert.c_str());
-            } catch (const std::exception& e) {
-                fprintf(stderr, "Failed to create HTTPS server: %s\n", e.what());
-                fprintf(stderr, "HTTPS will not be available.\n");
-            }
-        } else {
-            fprintf(stdout, "SSL certificate not configured. HTTPS will not be available.\n");
-        }
-        
         // WS 리스너 생성 (비보안 WebSocket)
         fprintf(stdout, "Attempting to create WS listener...\n");
         ws_listener = std::make_shared<WebSocketListener>(
@@ -268,7 +191,7 @@ int main(int argc, char* argv[]) {
         
         // --- signal_set 핸들러 설정 (서버 객체 생성 후) ---
         signals.async_wait(
-            [&ioc, &http_server, &https_server, &chat_server, &ws_listener, &wss_listener]
+            [&ioc, &http_server, &chat_server, &ws_listener]
             (const beast::error_code& ec, int signal_number) {
                 fprintf(stdout, "\nSignal %d received. Shutting down...\n", signal_number);
 
@@ -276,10 +199,6 @@ int main(int argc, char* argv[]) {
                 if (http_server) {
                     fprintf(stdout, "Requesting HTTP server stop...\n");
                     http_server->stop();
-                }
-                if (https_server) {
-                    fprintf(stdout, "Requesting HTTPS server stop...\n");
-                    https_server->stop();
                 }
                 if (chat_server) {
                     fprintf(stdout, "Requesting Chat server stop...\n");
@@ -294,34 +213,15 @@ int main(int argc, char* argv[]) {
         
         // --- 서버 시작 ---
         http_server->run();
-        if (https_server) {
-            https_server->run();
-        }
-
         // WebSocket 리스너 실행
         if (ws_listener) {
             fprintf(stdout, "Running WS listener...\n");
             ws_listener->run();
         }
-        if (wss_listener) {
-            fprintf(stdout, "Running WSS listener...\n");
-            wss_listener->run();
-        }
-
         fprintf(stdout, "HTTP server starting on %s:%hu (%d threads)\n", http_bind_ip.c_str(), http_port, http_threads);
         fprintf(stdout, "WebSocket (WS) server starting on port %hu (using shared io_context)\n", ws_port);
-        
-        if (enable_direct_ssl) {
-            fprintf(stdout, "\n[직접 SSL 모드 활성화]\n");
-            if (https_server) {
-                fprintf(stdout, "HTTPS server starting on %s:%hu (%d threads)\n", http_bind_ip.c_str(), https_port, http_threads);
-            }
-            if (wss_listener) {
-                fprintf(stdout, "WebSocket Secure (WSS) server starting on port %hu\n", wss_port);
-            }
-        } else {
-            fprintf(stdout, "\n[권장] SSL은 nginx/NLB에서 처리합니다. 애플리케이션은 HTTP/WS만 제공합니다.\n");
-        }
+        fprintf(stdout, "\n[알림] SSL/TLS는 nginx 또는 AWS ALB에서 처리합니다.\n");
+        fprintf(stdout, "애플리케이션은 HTTP(port %hu)와 WebSocket(port %hu)만 제공합니다.\n", http_port, ws_port);
 
         // --- 공유 io_context 실행 스레드 시작 ---
         std::vector<std::thread> io_threads;

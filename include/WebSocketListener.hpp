@@ -3,10 +3,8 @@
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
-#include <boost/beast/ssl.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/dispatch.hpp>
-#include <boost/asio/ssl.hpp>
 #include <memory>
 #include <optional>
 
@@ -14,7 +12,6 @@ namespace beast = boost::beast;
 namespace http = beast::http;
 namespace websocket = beast::websocket;
 namespace net = boost::asio;
-namespace ssl = boost::asio::ssl;
 using tcp = boost::asio::ip::tcp;
 
 class ChatServer;
@@ -29,22 +26,13 @@ private:
     tcp::acceptor acceptor_;
     /// @brief ChatServer의 공유 포인터. 세션 생성 시 필요.
     std::shared_ptr<ChatServer> server_;
-    /// @brief WSS를 위한 SSL context (선택 사항).
-    std::optional<ssl::context> ssl_ctx_;
-    /// @brief SSL(WSS) 사용 여부.
-    bool use_ssl_;
-    
+
 public:
     // HTTP/WS용 생성자
     WebSocketListener(net::io_context& ioc, 
                       tcp::endpoint endpoint, 
                       std::shared_ptr<ChatServer> server);
-    
-    // HTTPS/WSS용 생성자
-    WebSocketListener(net::io_context& ioc, 
-                      tcp::endpoint endpoint, 
-                      std::shared_ptr<ChatServer> server,
-                      ssl::context&& ctx);
+
     
     // Start accepting connections
     void run();

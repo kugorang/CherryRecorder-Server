@@ -83,48 +83,9 @@ public:
     }
 
 private:
-    /**
-     * @brief 모든 응답에 CORS 헤더를 추가하는 헬퍼 메서드.
-     * @param res 수정할 HTTP 응답 객체
-     * @return 헤더가 추가된 HTTP 응답 객체
-     */
-    template<class Body, class Fields>
-    http::response<Body, Fields>& add_cors_headers(http::response<Body, Fields>& res) {
-        // CORS 헤더 추가
-        res.set(http::field::access_control_allow_origin, "*");  // 모든 도메인 허용, 필요시 특정 도메인으로 변경
-        res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
-        res.set(http::field::access_control_allow_headers, "Content-Type, Authorization, Accept");
-        res.set(http::field::access_control_max_age, "86400");  // 캐시 유효시간 1일 (선택사항)
-        
-        return res;
-    }
 
-    /**
-     * @brief OPTIONS 메서드(프리플라이트 요청) 처리
-     */
-    void handle_options_request() {
-        fprintf(stdout, "[HttpSession %p] Handling OPTIONS request (CORS preflight).\n", (void*)this);
-        
-        // 200 OK 응답 생성
-        http::response<http::empty_body> res{http::status::ok, req_.version()};
-        
-        // 필수 CORS 헤더 추가
-        add_cors_headers(res);
-        
-        // 응답 전송
-        auto sp = std::make_shared<http::response<http::empty_body>>(std::move(res));
-        
-        // 쓰기 타임아웃 설정
-        stream_.expires_after(std::chrono::seconds(30));
-        
-        fprintf(stdout, "[HttpSession %p] Writing OPTIONS response...\n", (void*)this);
-        
-        // 비동기적으로 응답 쓰기 시작
-        http::async_write(stream_, *sp,
-            [self = shared_from_this(), sp](beast::error_code ec, std::size_t bytes_transferred) {
-                self->on_write(sp->need_eof(), ec, bytes_transferred);
-            });
-    }
+
+
 
     /**
     * @brief `run()`에서 `net::dispatch`된 후 실제 실행되는 함수.
@@ -184,10 +145,7 @@ private:
         fprintf(stdout, "[HttpSession %p] Read successful. Request: %s %s\n", (void*)this,
             std::string(http::to_string(req_.method())).c_str(), std::string(req_.target()).c_str());
 
-        // ----- CORS 프리플라이트 요청 처리 추가 -----
-        if (req_.method() == http::verb::options) {
-            return handle_options_request();  // OPTIONS 요청 처리
-        }
+
         // ----- 요청 라우팅 -----
         if (req_.method() == http::verb::get && req_.target() == "/health") {
             handle_health_check_request(); // Health Check 요청 처리
@@ -263,7 +221,7 @@ private:
     void handle_places_nearby_request() {
         fprintf(stdout, "[HttpSession %p] Handling /places/nearby request.\n", (void*)this);
         http::response<http::string_body> res = places_handler_->handleNearbySearch(req_);
-        add_cors_headers(res);  // CORS 헤더 추가
+
         send_response(std::move(res));
     }
     
@@ -273,7 +231,7 @@ private:
     void handle_places_search_request() {
         fprintf(stdout, "[HttpSession %p] Handling /places/search request.\n", (void*)this);
         http::response<http::string_body> res = places_handler_->handleTextSearch(req_);
-        add_cors_headers(res);  // CORS 헤더 추가
+
         send_response(std::move(res));
     }
     
@@ -288,7 +246,6 @@ private:
         ///< @note 현재는 Google API 응답 형식을 그대로 클라이언트에 반환합니다.
         ///< @todo 필요 시 응답 형식을 변환하는 transformPlaceDetails 함수를 구현할 수 있습니다.
         http::response<http::string_body> res = places_handler_->handlePlaceDetails(place_id);
-        add_cors_headers(res);  // CORS 헤더 추가
         send_response(std::move(res));
     }
 
@@ -301,7 +258,6 @@ private:
         
         // Google Places Photo API를 통해 이미지 가져오기
         http::response<http::string_body> res = places_handler_->handlePlacePhoto(photo_reference);
-        add_cors_headers(res);  // CORS 헤더 추가
         send_response(std::move(res));
     }
 
@@ -331,8 +287,7 @@ private:
         // API 키를 응답 본문으로 설정
         res.body() = api_key;
         
-        // CORS 헤더 추가
-        add_cors_headers(res);
+
         
         // 응답 전송
         res.prepare_payload();
@@ -354,8 +309,6 @@ private:
         res.keep_alive(req_.keep_alive());                       // 요청의 Keep-Alive 설정 따름
         // 응답 본문 설정
         res.body() = "OK";
-        // CORS 헤더 추가
-        add_cors_headers(res);
         // 응답 본문 길이에 맞춰 Content-Length 헤더 등 자동 계산 및 설정
         res.prepare_payload();
         // 생성된 응답 전송
@@ -372,8 +325,6 @@ private:
         res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
         res.set(http::field::content_type, "text/plain");
         res.body() = std::string(why);
-        // CORS 헤더 추가
-        add_cors_headers(res);
         res.prepare_payload();
         send_response(std::move(res));
     }
@@ -393,8 +344,6 @@ private:
         res.keep_alive(req_.keep_alive());
         // 응답 본문 설정
         res.body() = "The resource '" + std::string(req_.target()) + "' was not found.";
-        // CORS 헤더 추가
-        add_cors_headers(res);
         // 응답 본문 길이에 맞춰 Content-Length 헤더 등 자동 계산 및 설정
         res.prepare_payload();
         // 생성된 응답 전송

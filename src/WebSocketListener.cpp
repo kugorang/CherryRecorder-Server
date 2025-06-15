@@ -1,6 +1,5 @@
 #include "WebSocketListener.hpp"
 #include "WebSocketSession.hpp"
-#include "WebSocketSSLSession.hpp"
 #include "ChatServer.hpp"
 #include <spdlog/spdlog.h>
 
@@ -11,24 +10,10 @@ WebSocketListener::WebSocketListener(net::io_context& ioc,
     : ioc_(ioc)
     , acceptor_(net::make_strand(ioc))
     , server_(server)
-    , use_ssl_(false)
 {
     init_acceptor(endpoint);
 }
 
-// HTTPS/WSS용 생성자
-WebSocketListener::WebSocketListener(net::io_context& ioc, 
-                                     tcp::endpoint endpoint, 
-                                     std::shared_ptr<ChatServer> server,
-                                     ssl::context&& ctx)
-    : ioc_(ioc)
-    , acceptor_(net::make_strand(ioc))
-    , server_(server)
-    , ssl_ctx_(std::move(ctx))
-    , use_ssl_(true)
-{
-    init_acceptor(endpoint);
-}
 
 void WebSocketListener::init_acceptor(tcp::endpoint endpoint)
 {
@@ -62,9 +47,8 @@ void WebSocketListener::init_acceptor(tcp::endpoint endpoint)
         throw beast::system_error{ec};
     }
     
-    spdlog::info("WebSocketListener: Listening on {}:{} ({})", 
-                 endpoint.address().to_string(), endpoint.port(),
-                 use_ssl_ ? "WSS" : "WS");
+    spdlog::info("WebSocketListener: Listening on {}:{}", 
+                 endpoint.address().to_string(), endpoint.port());
 }
 
 void WebSocketListener::run()
@@ -87,16 +71,10 @@ void WebSocketListener::on_accept(beast::error_code ec, tcp::socket socket)
     if (ec) {
         spdlog::error("WebSocketListener: Accept failed: {}", ec.message());
     } else {
-        // Create and run a WebSocket session (SSL or non-SSL)
-        if (use_ssl_ && ssl_ctx_.has_value()) {
-            auto session = std::make_shared<WebSocketSSLSession>(std::move(socket), *ssl_ctx_, server_);
-            session->run();
-            spdlog::info("WebSocketListener: New WebSocket SSL connection accepted");
-        } else {
-            auto session = std::make_shared<WebSocketSession>(std::move(socket), server_);
-            session->run();
-            spdlog::info("WebSocketListener: New WebSocket connection accepted");
-        }
+        // Create and run a WebSocket session
+        auto session = std::make_shared<WebSocketSession>(std::move(socket), server_);
+        session->run();
+        spdlog::info("WebSocketListener: New WebSocket connection accepted");
     }
     
     // Accept another connection

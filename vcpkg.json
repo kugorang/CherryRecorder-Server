@@ -6,7 +6,6 @@
   "dependencies": [
     "boost-asio",
     "boost-beast",
-    "openssl",
     "boost-json",
     "spdlog"
   ],

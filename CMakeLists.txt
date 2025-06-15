@@ -74,12 +74,10 @@ endif()
 # find_package 시 필요한 컴포넌트를 명시한다.
 # Boost::headers는 많은 Boost 라이브러리에서 필요하다.
 find_package(Boost 1.70.0 REQUIRED COMPONENTS system asio beast json)
-find_package(OpenSSL REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(Threads REQUIRED) # Find pthreads on non-Windows
 
 message(STATUS "Boost include directories: ${Boost_INCLUDE_DIRS}")
-message(STATUS "OpenSSL include directories: ${OPENSSL_INCLUDE_DIR}")
 message(STATUS "spdlog include directories: ${spdlog_INCLUDE_DIRS}") # Check variable name from find_package
 
 # ----------------------------------------------------------------------
@@ -115,7 +113,6 @@ message(STATUS "Configured target: ChatLib (Chat Server Logic)")
 add_library(HttpServerLib STATIC)
 target_sources(HttpServerLib PRIVATE
     src/HttpServer.cpp
-    src/HttpsServer.cpp  # HTTPS 서버 추가
     src/handlers/PlacesApiHandler.cpp # API 핸들러
 )
 target_include_directories(HttpServerLib PUBLIC
@@ -151,7 +148,6 @@ target_sources(ChatServerLib PRIVATE
     # WebSocket 리스너 및 세션
     src/WebSocketListener.cpp
     src/WebSocketSession.cpp
-    src/WebSocketSSLSession.cpp
 )
 target_include_directories(ChatServerLib PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> # ChatServer.hpp 등
@@ -191,8 +187,6 @@ target_link_libraries(CherryRecorder-Server-App
     PRIVATE
         ChatServerLib
         HttpServerLib
-        OpenSSL::SSL
-        OpenSSL::Crypto
 )
 if(NOT WIN32)
     target_link_libraries(CherryRecorder-Server-App PRIVATE Threads::Threads)
@@ -233,8 +227,6 @@ if(BUILD_TESTING)
     target_link_libraries(CherryRecorder-Tests PRIVATE
         ChatServerLib
         HttpServerLib
-        OpenSSL::SSL
-        OpenSSL::Crypto
         GTest::gmock_main # gmock과 gtest를 모두 포함하며 main 함수 제공
         GTest::gtest
         GTest::gmock
