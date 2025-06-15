@@ -101,7 +101,6 @@ COPY arm64-linux-ecs.cmake /opt/vcpkg/triplets/
 RUN mkdir -p src/handlers && \
     touch src/main.cpp \
           src/HttpServer.cpp \
-          src/HttpsServer.cpp \
           src/ChatServer.cpp \
           src/ChatSession.cpp \
           src/ChatRoom.cpp \
@@ -109,7 +108,6 @@ RUN mkdir -p src/handlers && \
           src/MessageHistory.cpp \
           src/WebSocketListener.cpp \
           src/WebSocketSession.cpp \
-          src/WebSocketSSLSession.cpp \
           src/handlers/PlacesApiHandler.cpp && \
     mkdir -p include/handlers && \
     touch include/HttpServer.hpp \
@@ -121,7 +119,6 @@ RUN mkdir -p src/handlers && \
           include/SessionInterface.hpp \
           include/WebSocketListener.hpp \
           include/WebSocketSession.hpp \
-          include/WebSocketSSLSession.hpp \
           include/handlers/PlacesApiHandler.hpp
 
 # vcpkg 의존성을 설치합니다.
