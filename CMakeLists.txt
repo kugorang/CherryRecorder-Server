@@ -74,10 +74,12 @@ endif()
 # find_package 시 필요한 컴포넌트를 명시한다.
 # Boost::headers는 많은 Boost 라이브러리에서 필요하다.
 find_package(Boost 1.70.0 REQUIRED COMPONENTS system asio beast json)
+find_package(OpenSSL REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(Threads REQUIRED) # Find pthreads on non-Windows
 
 message(STATUS "Boost include directories: ${Boost_INCLUDE_DIRS}")
+message(STATUS "OpenSSL include directories: ${OPENSSL_INCLUDE_DIR}")
 message(STATUS "spdlog include directories: ${spdlog_INCLUDE_DIRS}") # Check variable name from find_package
 
 # ----------------------------------------------------------------------
@@ -125,6 +127,8 @@ target_link_libraries(HttpServerLib PUBLIC # 필요한 라이브러리 링크
     Boost::system
     Boost::asio # HttpServer 내부에서 Asio 사용 시 필요
     Boost::json # Places API 응답 처리에 필요
+    OpenSSL::SSL
+    OpenSSL::Crypto
     spdlog::spdlog
 )
 
@@ -227,6 +231,8 @@ if(BUILD_TESTING)
     target_link_libraries(CherryRecorder-Tests PRIVATE
         ChatServerLib
         HttpServerLib
+        OpenSSL::SSL
+        OpenSSL::Crypto
         GTest::gmock_main # gmock과 gtest를 모두 포함하며 main 함수 제공
         GTest::gtest
         GTest::gmock
