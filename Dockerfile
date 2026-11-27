@@ -186,7 +186,7 @@ RUN ldd /app/build/CherryRecorder-Server-App || echo "ldd check skipped or faile
 # ----------------------------------------------------------------------
 FROM ubuntu:24.04 AS final
 
-LABEL maintainer="Kim Hyeonwoo <ialskdji@gmail.com>" \
+LABEL maintainer="Kim Hyeonwoo <hw@kugora.ng>" \
       description="CherryRecorder Server Application - Beast HTTP/S, WebSocket Services" \
       version="0.3.0"
 
