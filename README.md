@@ -246,7 +246,7 @@ curl -H 'Origin: https://kugorang.github.io' \
 ## 👤 개발자
 
 - **Kim Hyeonwoo** - [kugorang](https://github.com/kugorang)
-- 이메일: ialskdji@gmail.com
+- 이메일: hw@kugora.ng
 
 ## 🤝 기여
 
